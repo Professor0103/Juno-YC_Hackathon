@@ -1,0 +1,139 @@
+/* Design tokens — §5 of 03-frontend-specification.md, verbatim, plus the
+   image-derived additions this screen needs. Do not add values here that
+   aren't traceable to the spec or to a measurement in scripts/. */
+
+:root {
+  /* ─── Palette (specified) ─────────────────────────────── */
+  --peach: #F2D2C2;   /* page ground */
+  --clay:  #C6A894;   /* rules, borders, inactive, folder spines */
+  --stone: #6D6E71;   /* dates and meta only */
+  --haze:  #D0DDD7;   /* the archive — "kept" temperature */
+  --sage:  #A3BFB3;   /* folder chips, settled markers, dividers in archive */
+  --moss:  #648E7B;   /* primary action, focus ring, the agent's voice */
+
+  /* ─── Derived additions (§5.1 — required, not optional) ── */
+  --paper:    #FAEBE2; /* writing + reading surface */
+  --ink:      #2E3A34; /* body text */
+  --ink-soft: #4A5B52; /* secondary text */
+
+  /* ─── Alpha overlays ──────────────────────────────────── */
+  --rule:      rgba(198, 168, 148, 0.55);
+  --rule-firm: rgba(198, 168, 148, 0.85);
+  --scrim:     rgba(46, 58, 52, 0.32);
+  --lift:      rgba(46, 58, 52, 0.08);
+
+  /* ─── Type ────────────────────────────────────────────── */
+  --font-display: "Daywalker", "Comic Neue", cursive;
+  --font-read:    "Newsreader", Georgia, serif;
+  --font-ui:      "Hanken Grotesk", system-ui, sans-serif;
+
+  --t-display: 2.75rem;
+  --t-title:   1.75rem;
+  --t-read:    1.1875rem;
+  --t-body:    1.0625rem;
+  --t-ui:      0.9375rem;
+  --t-meta:    0.8125rem;
+
+  /* Fluid sizes for this screen. The spec's fixed sizes are set for a phone
+     held close; here the same 19px sits in an open sky on a 27" monitor and
+     reads as small print. These start at the spec's value and grow with the
+     viewport, so nothing changes on mobile. */
+  --t-sky:        clamp(1.1875rem, 1rem + 0.85vw, 1.75rem);    /* 19 -> 28px */
+  --t-sky-open:   clamp(1.75rem, 1.45rem + 1.3vw, 2.5rem);     /* 28 -> 40px */
+  --t-clock:      clamp(0.9375rem, 0.85rem + 0.35vw, 1.125rem);/* 15 -> 18px */
+  --t-clock-date: clamp(0.8125rem, 0.76rem + 0.22vw, 0.9375rem);
+
+  --lh-display: 1.15;
+  --lh-title:   1.25;
+  --lh-read:    1.7;
+  --lh-body:    1.55;
+  --lh-ui:      1.4;
+
+  --ls-meta: 0.06em;
+
+  /* ─── Space (4px base) ────────────────────────────────── */
+  --s1: 4px;   --s2: 8px;   --s3: 12px;  --s4: 16px;
+  --s5: 24px;  --s6: 32px;  --s7: 48px;  --s8: 64px;  --s9: 96px;
+
+  /* ─── Radius ──────────────────────────────────────────── */
+  --r-sm: 4px;   --r-md: 10px;  --r-lg: 18px;
+  --r-xl: 28px;  --r-pill: 999px;
+
+  /* ─── Elevation ───────────────────────────────────────── */
+  --e0: none;
+  --e1: 0 1px 2px var(--lift);
+  --e2: 0 4px 14px var(--lift);
+  --e3: 0 10px 30px var(--lift);
+
+  /* ─── Motion ──────────────────────────────────────────── */
+  --d-instant: 120ms;
+  --d-quick:   200ms;
+  --d-gentle:  380ms;
+  --d-slow:    700ms;
+  --d-settle:  1400ms;
+  --d-breath:  9600ms;
+
+  --ease-out:  cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-soft: cubic-bezier(0.4, 0.0, 0.2, 1);
+  --ease-in:   cubic-bezier(0.55, 0.06, 0.68, 0.19);
+
+  /* ─── Layout ──────────────────────────────────────────── */
+  --gutter: var(--s5);
+  --max-read: 34rem;
+  --tap-min: 44px;
+}
+
+/* ─── Image-derived tokens ────────────────────────────────
+   These exist only to blend with the artwork. They never colour UI chrome —
+   buttons, focus rings and text stay on the brand tokens above, so the
+   illustration can be re-graded later without touching the component layer.
+
+   Values measured from the illustration by scripts/build-assets.mjs rather
+   than taken from the brief: the brief's --sky-deep #FAAAA4 and --grass-deep
+   #5E6649 are close to, but not exactly, this render's edges, and the seam
+   only disappears if the extension matches the edge exactly.        */
+:root {
+  --sky-deep:   #F7A5A1;  /* top of the extended sky, above the image */
+  --sky-edge:   #FCACA5;  /* measured top edge — the seam colour, exact */
+  --sky-mid:    #FCAFA5;
+  --sky-low:    #F8D4C0;
+  --field:      #CC9461;
+  --grass:      #6A6D4B;
+  --grass-edge: #5A6648;  /* measured bottom edge — the seam colour, exact */
+
+  /* Geometry of the artwork, measured. */
+  --art-ratio: 1.4282;
+  --art-min-share: 0.46;  /* least of the stage height the artwork may occupy */
+
+  /* On a viewport wider than the artwork's 1.43:1 something has to be cropped.
+     The two edges are not equally expendable:
+
+     The canopy starts at image-y 20.6% — above that row the darkest pixel in
+     the sky is luminance 0.546, below it 0.092, so the edge is unambiguous
+     (scripts/probe-tree.mjs). Past 20.6% the top crop takes the crown off the
+     tree. 15% stops short of that and leaves sky above the crown.
+
+     The bottom is foreground grass and near enough uniform, so cropping it
+     costs nothing but the scale of the nearest blades. It absorbs the rest.
+     Together these cover viewports up to about 2.27:1; beyond that the top
+     crop has to grow and the crown starts to go. */
+  --art-crop-top-max: 0.15;
+  --art-crop-bottom-max: 0.22;
+
+  /* The input bar's stabilising layer.
+
+     The brief specifies a flat 0.30. Measured, that gives --paper 4.02:1 over
+     bare grass and 4.53:1 once the blur is applied — under the floor if
+     backdrop-filter is unavailable, and well under it as soon as the bar grows
+     upward toward the lighter gold field.
+
+     A gradient solves it better than a heavier flat scrim would: the backdrop
+     behind the top of the bar is lighter than the backdrop behind its bottom,
+     so only the top needs weight. 0.58 falling to 0.42 holds --paper at 4.72:1
+     or better with the bar's top edge as high as image-y 62%, with no blur at
+     all, while the bottom of the bar stays light enough for the grass to read
+     through it. See scripts/probe-bar.mjs. */
+  --bar-scrim-top: rgba(46, 58, 52, 0.58);
+  --bar-scrim-bottom: rgba(46, 58, 52, 0.42);
+  --bar-blur: 14px;
+}

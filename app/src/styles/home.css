@@ -1,0 +1,571 @@
+@font-face {
+  font-family: "Daywalker";
+  src: url("/fonts/Daywalker.woff2") format("woff2");
+  font-weight: 400;      /* declare 400 only — prevents synthesis (§6.2a) */
+  font-style: normal;
+  font-display: swap;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  /* The stage owns the viewport; nothing outside it scrolls. */
+  overflow: hidden;
+  background: var(--sky-mid);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ───────────────────────────────────────────────────────────
+   Stage
+
+   Fixed to the visual viewport rather than the layout viewport. --stage-h and
+   --stage-offset are written by useStageMetrics from visualViewport, so the
+   stage tracks the keyboard instead of hiding behind it (§8).
+   ─────────────────────────────────────────────────────────── */
+
+:root {
+  --stage-h: 100dvh;
+  --stage-offset: 0px;
+
+  /* Rendered size of the artwork. Derived, not measured, so the backdrop can
+     lay itself out before React runs; useStageMetrics corrects it from the
+     real element rect once the image has a box.
+
+     The artwork always spans the width; on a viewport taller than 1.43:1 it
+     also keeps a floor so it doesn't shrink to a strip. */
+  --art-w: max(100vw, calc(var(--stage-h) * var(--art-min-share) * var(--art-ratio)));
+  --art-h: calc(var(--art-w) / var(--art-ratio));
+
+  /* Where the overflow is taken from. Anchoring the artwork to the bottom puts
+     all of it at the top, which is where the tree is — on a short, wide window
+     that is exactly what decapitates the canopy. So the top takes only what it
+     can afford and the bottom, which is uniform grass, takes the rest. */
+  --art-crop: max(0px, calc(var(--art-h) - var(--stage-h)));
+  --art-crop-bottom: clamp(
+    0px,
+    calc(var(--art-crop) - var(--art-h) * var(--art-crop-top-max)),
+    calc(var(--art-h) * var(--art-crop-bottom-max))
+  );
+
+  /* How far down the stage the writing column may run before --ink stops
+     clearing 4.5:1. Corrected by measurement; this is the safe starting value. */
+  --write-max-h: calc(var(--stage-h) - var(--art-h) + var(--art-crop-bottom));
+}
+
+.stage {
+  position: fixed;
+  inset: 0;
+  height: var(--stage-h);
+  transform: translateY(var(--stage-offset));
+  overflow: hidden;
+  isolation: isolate;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  /* An auto column takes the widest child's min-content, and at 200% text the
+     composer's is 406px on a 390px screen — which would put the whole stage
+     into a horizontal scroll. minmax(0, 1fr) caps it and lets the rows solve
+     their own overflow: the sky column scrolls, the textarea wraps. */
+  grid-template-columns: minmax(0, 1fr);
+  /* Ground colour under the artwork so the layout never flashes white. */
+  background: var(--sky-mid);
+}
+
+/* ───────────────────────────────────────────────────────────
+   Backdrop
+
+   The illustration is 1.43:1 and a phone in portrait is nearer 0.46:1, so
+   object-fit: cover would either crop the tree away or eat the writing zone.
+   Instead the artwork is anchored to the bottom at its native aspect ratio and
+   the sky is extended upward with a gradient whose bottom stop is the exact
+   measured colour of the image's top edge — so the seam has nothing to show.
+
+   The flex column does the alignment: the sky extension takes the slack, the
+   artwork keeps its intrinsic height. On viewports too short to hold the
+   artwork the extension collapses to zero and the artwork overflows the top,
+   which puts the seam off-screen rather than breaking it — and the negative
+   bottom margin slides the artwork down so that overflow is shared with the
+   bottom edge instead of all landing on the tree.
+   ─────────────────────────────────────────────────────────── */
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: flex-end;   /* keep the tree on screen when the art is cropped */
+  overflow: hidden;
+  /* The artwork's rendered height is fractional, so the flex boundary between
+     the sky extension and the image lands on a subpixel and lets whatever is
+     behind it show through as a hairline. Painting the backdrop in the seam
+     colour makes that hairline the same colour as both sides of the seam; the
+     negative margins below then close the gap outright. */
+  background: var(--sky-edge);
+}
+
+.backdrop__sky {
+  flex: 1 1 auto;
+  min-height: 0;
+  align-self: stretch;
+  background: linear-gradient(to bottom, var(--sky-deep) 0%, var(--sky-edge) 100%);
+}
+
+.backdrop__art {
+  flex: 0 0 auto;
+  display: block;
+  line-height: 0;
+  /* Overlap the sky extension by a pixel rather than meeting it exactly. The
+     row being covered is the image's own top edge, which is the same colour. */
+  margin-top: -1px;
+}
+
+.backdrop__art img {
+  display: block;
+  width: var(--art-w);
+  height: var(--art-h);
+  /* Slides the artwork below the bottom edge so the top crop stays off the
+     canopy. The extra 1px is the same overlap guard as above. */
+  margin-bottom: calc(-1px - var(--art-crop-bottom));
+}
+
+/* The resting bear. Positioned in pixels by useArtRect (App.jsx), measured
+   off the rendered artwork rather than expressed here in CSS, because its
+   containing block — .backdrop — spans the whole stage while the artwork
+   itself overflows it by a different amount at each edge. */
+.backdrop__bear {
+  position: absolute;
+  display: block;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+
+/* ───────────────────────────────────────────────────────────
+   Masthead
+   ─────────────────────────────────────────────────────────── */
+
+.masthead {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s4);
+  /* At 200% text the wordmark and the clock together want 406px of a 390px
+     screen. Wrapping puts the clock on its own line rather than pushing the
+     stage into a horizontal scroll. */
+  flex-wrap: wrap;
+  row-gap: var(--s1);
+  /* §9.3 puts the wordmark hard left and the date hard right. Hard right on
+     this screen is the canopy, where --ink measures under 2:1 and the date
+     disappears into the leaves. Holding the masthead to the same measure as
+     the writing keeps that relationship but lands both ends in clear sky. */
+  width: 100%;
+  max-width: calc(var(--max-read) + var(--gutter) * 2);
+  padding: max(var(--s4), env(safe-area-inset-top)) var(--gutter) var(--s3);
+}
+
+.masthead__wordmark {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 400;        /* never synthesise a second weight (§6.2a) */
+  font-style: normal;
+  font-size: var(--t-sky-open);
+  line-height: var(--lh-title);
+  /* §6.4 sets the wordmark in --moss. --moss measures 2.07–2.76:1 on this sky
+     and cannot be used here; --ink holds 6.04:1 or better. Logged as a
+     conflict rather than resolved silently. */
+  color: var(--ink);
+}
+
+.masthead__clock {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin: 0;
+  font-family: var(--font-ui);
+  line-height: var(--lh-ui);
+  letter-spacing: var(--ls-meta);
+  text-transform: uppercase;
+  /* §10.3 sets dates in --stone. --stone is 2.87–3.81:1 on this sky and this
+     is 15px text, so it needs 4.5:1 — only --ink clears it, and only at full
+     strength. Hierarchy between the two halves comes from size and weight
+     instead of the usual dimming. */
+  color: var(--ink);
+  /* Fixed-width digits: the seconds change once a second and proportional
+     figures would shift the whole line each time. */
+  font-variant-numeric: tabular-nums;
+}
+
+/* Neither half may break mid-label — "SAT 25 / JUL" reads as two dates. They
+   wrap against each other instead. */
+.masthead__clock-date {
+  font-weight: 400;
+  font-size: var(--t-clock-date);
+  white-space: nowrap;
+}
+
+.masthead__clock-time {
+  font-weight: 600;
+  font-size: var(--t-clock);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* On desktop the clock moves to the centre of the page. The wordmark stays in
+   the left gutter; the two outer columns are equal, so column 2 is centred on
+   the viewport rather than on whatever is left over beside the wordmark.
+   minmax(0, ...) on the outer columns lets them shrink past the wordmark's
+   min-content at 200% text, and the clock — which wraps — gives up its second
+   line before that happens.
+
+   Both bounds keep the clock off the canopy, which is the one region --ink
+   cannot be read against:
+
+   width   the canopy's left edge is at 64.1% of the artwork, so a centred
+           clock clears it by 0.141w - half the clock's width. That turns
+           positive around 600px and is worth about 20px at 700.
+   aspect  below 3:4 the artwork stops being full bleed and shifts right,
+           bringing the canopy's left edge across the centre line. */
+@media (min-width: 700px) and (min-aspect-ratio: 3 / 4) {
+  .masthead {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    max-width: none;
+  }
+
+  .masthead__clock {
+    grid-column: 2;
+    justify-content: center;
+  }
+}
+
+/* Below that width there is no room to centre the clock clear of the canopy,
+   so it stays in the left band — but past 1.43:1 the artwork overflows the top
+   and the canopy climbs into the masthead's row, where the band's usual 592px
+   would reach the leaves. Pull it in. Anything squarer than 1.43:1 leaves the
+   canopy well below the masthead and needs no help. */
+/* .98 rather than 699: browser zoom and device emulation both produce
+   fractional viewport widths, and 699.33px matches neither bound at 699. */
+@media (max-width: 699.98px) and (min-aspect-ratio: 10 / 7) {
+  .masthead {
+    max-width: 62%;
+  }
+}
+
+/* ───────────────────────────────────────────────────────────
+   Sky column — where the writing goes
+   ─────────────────────────────────────────────────────────── */
+
+.sky {
+  position: relative;
+  z-index: 1;
+  min-height: 0;
+  padding: 0 var(--gutter);
+}
+
+.sky__column {
+  position: relative;   /* offsetParent for the fade measurement */
+  /* The measure grows with the type so the line length stays around 40
+     characters rather than dropping to 25 as the text gets bigger. Still well
+     inside the left 58% of the sky, which is the region the contrast audit
+     clears. */
+  max-width: min(var(--max-read), 100%);
+  max-height: var(--write-max-h);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+  /* Slight left indent so the text sits in the sky rather than against the
+     gutter — journal writing, not a layout edge. */
+  padding-left: var(--s2);
+  /* Room for a descender on the last line inside the scroller. */
+  padding-bottom: var(--s3);
+  scrollbar-width: none;
+}
+
+.sky__column::-webkit-scrollbar {
+  display: none;
+}
+
+/* The oldest writing dissolves into the sky rather than being clipped by an
+   edge that isn't there. Only once the column has actually scrolled, so the
+   first line the user ever writes isn't dimmed for no reason.
+
+   The dimmed band is one line deep and the text inside it is still in the DOM:
+   scrolling up moves it down out of the band and back to full opacity, so
+   nothing is permanently below the contrast floor. */
+.sky__column[data-scrolled="true"] {
+  --fade-depth: 2.4em;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-depth));
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-depth));
+}
+
+.sky__line {
+  margin: 0 0 var(--s4);
+  color: var(--ink);
+  transition: opacity var(--d-slow) var(--ease-soft);
+}
+
+.sky__line:last-child {
+  margin-bottom: 0;
+}
+
+/* The user's hand. Daywalker, single weight, hierarchy from size alone. */
+.sky__line--mine {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-style: normal;
+  font-size: var(--t-sky);
+  line-height: 1.9;   /* looser than --lh-read: this is writing, not reading */
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* Mango's voice. A different face, so at a glance you can see what you wrote
+   and what was written for you (§3.4). */
+.sky__line--mango {
+  font-family: var(--font-read);
+  font-style: italic;
+  font-weight: 400;
+  font-size: var(--t-sky);
+  line-height: var(--lh-read);
+  overflow-wrap: break-word;
+}
+
+/* The opening line. Author-controlled, so Daywalker is safe here. */
+.sky__line--prompt {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: var(--t-sky-open);
+  line-height: var(--lh-title);
+}
+
+/* Fade is presentational only — the text stays in state and the column
+   scrolls back to it. Opacity, no movement (§7.1). */
+.sky__line[data-faded="true"] {
+  opacity: 0;
+}
+
+.sky__waiting {
+  display: inline-block;
+  width: 1ch;
+  color: var(--ink);
+  opacity: 0.5;
+  font-family: var(--font-read);
+  font-size: var(--t-sky);
+  animation: mango-blink var(--d-breath) var(--ease-soft) infinite;
+}
+
+@keyframes mango-blink {
+  0%, 100% { opacity: 0.25; }
+  50%      { opacity: 0.6; }
+}
+
+/* ───────────────────────────────────────────────────────────
+   Composer — the translucent bar in the grass
+   ─────────────────────────────────────────────────────────── */
+
+.dock {
+  position: relative;
+  z-index: 1;
+  /* Kept tight: every pixel of chrome here is a pixel the draft can't use
+     before the bar hits the height where its scrim stops working. */
+  padding: var(--s3) var(--gutter) max(var(--s4), env(safe-area-inset-bottom));
+  margin-top: auto;
+}
+
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s3);
+  width: 100%;
+  max-width: var(--max-read);
+  margin-inline: auto;
+  padding: var(--s1) var(--s1) var(--s1) var(--s5);
+  /* Exactly half the resting height, which makes the resting bar a true pill
+     (§5, --r-pill) and keeps it a rounded rectangle as the draft grows. A
+     literal 999px radius turns a tall bar into a lozenge with the first line
+     of text sitting outside the curve. */
+  --composer-rest-h: calc(var(--t-sky) * 1.5 + var(--s3) + var(--s1) * 2 + 2px);
+  border-radius: calc(var(--composer-rest-h) / 2);
+  /* The scrim is what makes --paper reliable over textured grass. Without it
+     contrast swings with whichever blade sits behind a given letter. It
+     deepens toward the top because that is where the bar reaches the lighter
+     ground as it grows. */
+  background: linear-gradient(
+    to bottom,
+    var(--bar-scrim-top),
+    var(--bar-scrim-bottom)
+  );
+  -webkit-backdrop-filter: blur(var(--bar-blur));
+  backdrop-filter: blur(var(--bar-blur));
+  border: 1px solid rgba(250, 235, 226, 0.18);
+  box-shadow: var(--e2);
+  transition: border-color var(--d-instant) var(--ease-soft);
+}
+
+.composer:focus-within {
+  border-color: rgba(250, 235, 226, 0.42);
+}
+
+.composer__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  /* One line, plus a lift that puts the last line's centre on the send
+     button's centre while the box stays bottom-aligned as it grows. */
+  --composer-lift: var(--s3);
+  /* One line at whatever size the fluid type resolves to. Kept in step with
+     --composer-rest-h on the bar, which derives the corner radius from it. */
+  min-height: calc(var(--t-sky) * 1.5 + var(--composer-lift));
+  max-height: var(--composer-max-h, 40vh);
+  padding: 0 0 var(--composer-lift);
+  border: 0;
+  background: none;
+  resize: none;
+  overflow-y: auto;
+  /* The same hand the sky is set in, so committing an entry doesn't change
+     the shape of the user's own words. §6.1 gives the composer to Newsreader;
+     that holds for the spec's home screen, but here the writing lands in
+     Daywalker and the transition has to be invisible. */
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-style: normal;
+  font-size: var(--t-sky);
+  line-height: 1.5;
+  color: var(--paper);
+  caret-color: var(--paper);
+  scrollbar-width: none;
+}
+
+.composer__input::-webkit-scrollbar {
+  display: none;
+}
+
+.composer__input::placeholder {
+  color: var(--paper);
+  opacity: 0.62;
+}
+
+.composer__input:focus {
+  outline: none;   /* the ring moves to the bar, which is the visible boundary */
+}
+
+/* The ring belongs on the pill, which is the boundary the user sees, not on
+   the textarea inside it. */
+.composer:has(.composer__input:focus-visible) {
+  box-shadow: var(--e2), var(--focus-ring);
+}
+
+.composer__input:focus-visible {
+  box-shadow: none;
+}
+
+.composer__send {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  padding: 0;
+  border-radius: var(--r-pill);
+  background: var(--moss);
+  /* --moss reads about 2:1 against the scrimmed grass, so the button's edge
+     alone doesn't mark it out. The --paper glyph inside it carries 3.17:1
+     against the moss; this hairline gives the boundary itself some help. */
+  border: 1px solid rgba(250, 235, 226, 0.35);
+  color: var(--paper);
+  cursor: pointer;
+  transition:
+    opacity var(--d-quick) var(--ease-out),
+    transform var(--d-quick) var(--ease-out);
+}
+
+.composer__send:disabled {
+  background: rgba(250, 235, 226, 0.16);
+  color: rgba(250, 235, 226, 0.55);
+  cursor: default;
+}
+
+.composer__send:not(:disabled):active {
+  transform: scale(0.96);
+}
+
+.composer__send svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Focus is visible on every interactive element and never removed (§17).
+
+   §10.5 specifies a --moss ring. --moss measures 2.1:1 against the sky and
+   1.5:1 against the grass, so on this screen that ring would be invisible
+   against the very backdrop it has to sit on — it works on --peach, which is
+   what the spec's home screen is made of.
+
+   A two-tone ring holds instead: --paper inside, --ink outside. They are
+   10.19:1 against each other, and against every band of the illustration at
+   least one of them clears 3:1 — --ink over the sky and the gold field,
+   --paper over the grass. */
+:root {
+  --focus-ring: 0 0 0 2px var(--paper), 0 0 0 5px var(--ink);
+}
+
+:where(button, [href], input, textarea, [tabindex]):focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ───────────────────────────────────────────────────────────
+   Reduced motion (§7.4)
+   ─────────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  /* Older lines stay fully opaque and the column scrolls instead. */
+  .sky__line[data-faded] {
+    opacity: 1;
+  }
+
+  .sky__column {
+    scroll-behavior: auto;
+  }
+
+  .sky__column[data-scrolled="true"] {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}

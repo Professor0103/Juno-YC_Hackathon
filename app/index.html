@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light" />
+    <!-- The browser chrome should read as part of the sky, not as a bar above it. -->
+    <meta name="theme-color" content="#F7A5A1" />
+    <title>Mango</title>
+
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+
+    <!-- Daywalker renders in the wordmark on first paint; a swap on the app's
+         own name is visible, so it is preloaded (spec §6.5). -->
+    <link
+      rel="preload"
+      href="/fonts/Daywalker.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,200..600;1,6..72,200..600&display=swap"
+    />
+
+    <!-- The illustration is the first paint. Preload the same candidate set the
+         <picture> will choose from so the two resolve to one request. -->
+    <link
+      rel="preload"
+      as="image"
+      type="image/avif"
+      imagesrcset="/landscape/landscape-640.avif 640w, /landscape/landscape-1024.avif 1024w"
+      imagesizes="100vw"
+      fetchpriority="high"
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

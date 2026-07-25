@@ -1,0 +1,29 @@
+{
+  "name": "app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "oxlint",
+    "preview": "vite preview",
+    "assets": "node scripts/build-assets.mjs",
+    "probe:sky": "node scripts/probe-sky.mjs",
+    "probe:bar": "node scripts/probe-bar.mjs",
+    "probe:tree": "node scripts/probe-tree.mjs"
+  },
+  "dependencies": {
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "oxlint": "^1.71.0",
+    "sharp": "^0.35.3",
+    "ttf2woff2": "^8.0.1",
+    "vite": "^8.1.1"
+  }
+}
