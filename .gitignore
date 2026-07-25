@@ -4,3 +4,7 @@
 
 ### Node ###
 node_modules/
+
+### Test audio output ###
+*.mp3
+*.wav
