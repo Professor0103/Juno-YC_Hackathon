@@ -41,6 +41,12 @@ body {
   --stage-h: 100dvh;
   --stage-offset: 0px;
 
+  /* How far down the masthead's controls start. Shared, because the help
+     sheet's top edge is measured off it — the sheet has to clear the toggle
+     it encompasses, at every viewport, without the two being kept in step
+     by hand. */
+  --masthead-top: max(var(--s5), env(safe-area-inset-top));
+
   /* Rendered size of the artwork. Derived, not measured, so the backdrop can
      lay itself out before React runs; useStageMetrics corrects it from the
      real element rect once the image has a box.
@@ -74,7 +80,9 @@ body {
   overflow: hidden;
   isolation: isolate;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  /* Masthead, then the sky. There is no third row: the composer moved into
+     the writing column and the grass is backdrop again. */
+  grid-template-rows: auto 1fr;
   /* An auto column takes the widest child's min-content, and at 200% text the
      composer's is 406px on a 390px screen — which would put the whole stage
      into a horizontal scroll. minmax(0, 1fr) caps it and lets the rows solve
@@ -176,7 +184,11 @@ body {
      the writing keeps that relationship but lands both ends in clear sky. */
   width: 100%;
   max-width: calc(var(--max-read) + var(--gutter) * 2);
-  padding: max(var(--s4), env(safe-area-inset-top)) var(--gutter) var(--s3);
+  /* The extra --s2 on the left is the indent .sky__column carries, repeated
+     here so the toggle's left edge lands on the prompt's, as it does in the
+     reference render. The bottom is the render's gap down to the prompt. */
+  padding: var(--masthead-top) var(--gutter) var(--s5)
+           calc(var(--gutter) + var(--s2));
 }
 
 .masthead__wordmark {
@@ -227,6 +239,418 @@ body {
   white-space: nowrap;
 }
 
+/* ───────────────────────────────────────────────────────────
+   Mode toggle — Journal / Reflection
+
+   Colours sampled from the reference render rather than taken from the
+   palette. §5 has no warm brown: --ink is a green-black and --clay is a
+   ground, and the render draws this control and the prompt in a family of
+   its own that reads as part of the painting. Kept local to this block so
+   the brand tokens stay untouched, and noted here as the deviation it is.
+
+     label ink   #67301a   6.09:1 on the pill over the sky
+     active side a --paper veil    inactive side a --clay tint
+     track       a warm brown at low alpha
+     knob        --paper, near-opaque
+   ─────────────────────────────────────────────────────────── */
+
+.mode {
+  --mode-ink:      #67301a;
+  /* The lit side is a solid chip now rather than a veil: the mode you are in
+     is stated, not merely lighter than the one you aren't. Cream on this
+     brown measures 5.30:1. */
+  --mode-chip:     #7a5c3e;
+  --mode-chip-ink: #f7ede2;
+  --mode-tint:     rgba(198, 168, 148, 0.26);
+  --mode-track:    #7a5c3e;
+  --mode-knob:     #f7ede2;
+  --mode-track-w:  56px;
+  --mode-track-h:  22px;
+  --mode-knob-d:   18px;
+
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  /* The render draws this 39px tall. --tap-min is the floor for anything
+     operated by thumb (§17), and 5px of height is the cheaper thing to give
+     up — the proportions inside the pill are unchanged. */
+  min-height: var(--tap-min);
+  padding: var(--s1);
+  border: 1px solid rgba(250, 235, 226, 0.30);
+  border-radius: var(--r-pill);
+  background: var(--mode-tint);
+  -webkit-backdrop-filter: blur(var(--bar-blur));
+  backdrop-filter: blur(var(--bar-blur));
+  color: var(--mode-ink);
+  cursor: pointer;
+}
+
+.mode__label {
+  padding: var(--s2) var(--s4);
+  border-radius: var(--r-pill);
+  font-family: var(--font-read);
+  font-weight: 400;
+  font-size: var(--t-clock);
+  line-height: var(--lh-ui);
+  white-space: nowrap;
+  transition:
+    background-color var(--d-quick) var(--ease-out),
+    color var(--d-quick) var(--ease-out);
+}
+
+.mode__label[data-active="true"] {
+  background: var(--mode-chip);
+  color: var(--mode-chip-ink);
+}
+
+.mode__track {
+  position: relative;
+  flex: 0 0 auto;
+  width: var(--mode-track-w);
+  height: var(--mode-track-h);
+  border-radius: var(--r-pill);
+  background: var(--mode-track);
+}
+
+.mode__knob {
+  position: absolute;
+  top: calc((var(--mode-track-h) - var(--mode-knob-d)) / 2);
+  left: calc((var(--mode-track-h) - var(--mode-knob-d)) / 2);
+  width: var(--mode-knob-d);
+  height: var(--mode-knob-d);
+  border-radius: 50%;
+  background: var(--mode-knob);
+  box-shadow: var(--e1);
+  transition: transform var(--d-quick) var(--ease-out);
+}
+
+.mode[data-mode="reflection"] .mode__knob {
+  transform: translateX(calc(var(--mode-track-w) - var(--mode-track-h)));
+}
+
+/* The round controls in the top right. Same frosted treatment as the toggle so
+   they read as one set of masthead controls, and circles so they don't read as
+   part of it. The cluster sits in column 3 of the desktop grid, which puts it
+   at the gutter's right edge and on the toggle's own line. */
+.masthead__tools {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.sheetbutton {
+  display: grid;
+  place-items: center;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  padding: 0;
+  border: 1px solid rgba(250, 235, 226, 0.30);
+  border-radius: 50%;
+  background: rgba(250, 235, 226, 0.32);
+  -webkit-backdrop-filter: blur(var(--bar-blur));
+  backdrop-filter: blur(var(--bar-blur));
+  /* The toggle's warm brown, for the same reason — see the block above. */
+  color: #67301a;
+  font-family: var(--font-read);
+  font-size: var(--t-clock);
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--d-quick) var(--ease-out);
+}
+
+.sheetbutton:hover,
+.sheetbutton[aria-expanded="true"] {
+  background: rgba(250, 235, 226, 0.52);
+}
+
+.sheetbutton svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* ───────────────────────────────────────────────────────────
+   Sheet
+
+   The frosted card the writing zone sits on, and the surface both panels are
+   drawn on. Its box starts from the writing zone's own: the reading measure
+   across, and the masthead's top inset above the toggle — so it encompasses
+   the toggle, the prompt and the field without reaching past any of them.
+
+   Height is content's. The empty help panel holds the floor the first render
+   was drawn at; the calendar grows past it to the height its own grid needs.
+   ─────────────────────────────────────────────────────────── */
+
+.sheet {
+  position: absolute;
+  z-index: 0;   /* after .backdrop in the DOM, so above it and below the text */
+  /* Clears the toggle by --s4 wherever the masthead's inset lands. */
+  top: calc(var(--masthead-top) - var(--s4));
+  left: calc(var(--gutter) - var(--s4));
+  width: min(calc(var(--max-read) + var(--s5) * 2), calc(100% - var(--gutter)));
+  min-height: clamp(240px, 43vh, 540px);
+  /* Never past the bottom of the stage, whatever the panel wants. */
+  max-height: calc(100% - var(--masthead-top) - var(--s5));
+  /* Scrollbar left visible, unlike the sky column's. A panel that overflows —
+     the help text does, on a phone — has nothing else to say it continues. */
+  overflow-y: auto;
+  /* So a short panel can stretch to the sheet's floor rather than leaving it
+     half empty — see .help, which spaces itself against the bottom edge. */
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--r-lg);
+  border: 1px solid rgba(198, 168, 148, 0.45);
+  background: rgba(250, 235, 226, 0.38);
+  -webkit-backdrop-filter: blur(var(--bar-blur));
+  backdrop-filter: blur(var(--bar-blur));
+  box-shadow: var(--e2);
+  opacity: 0;
+  visibility: hidden;
+  transform: scale(0.995);
+  transition:
+    opacity var(--d-gentle) var(--ease-out),
+    transform var(--d-gentle) var(--ease-out),
+    visibility 0s linear var(--d-gentle);
+}
+
+/* Where a panel's own content may start: below the masthead, which overlaps
+   the top of the sheet and is one row tall on a desktop and two on a phone.
+   --masthead-h is measured (useStageMetrics); the fallback is the desktop
+   figure, so the first paint before the measurement lands is close.
+
+   The sheet's own top is --masthead-top - --s4, which is why that comes back
+   out of the sum. */
+.sheet {
+  --panel-top: calc(
+    var(--masthead-h, 152px) - var(--masthead-top) + var(--s4) + var(--s2)
+  );
+}
+
+.sheet[data-open="true"] {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition-delay: 0s;
+}
+
+/* An open panel takes the surface over, so the writing underneath goes away
+   rather than showing through it — the draft is in state, not in the DOM node,
+   so nothing is lost by hiding it.
+
+   Only the writing. The toggle stays, because the render puts it at the top of
+   the panel too. */
+.stage:not([data-sheet="none"]) .sky {
+  visibility: hidden;
+}
+
+/* ───────────────────────────────────────────────────────────
+   Help panel
+
+   Set in the sheet's warm brown and the reading face, on the panel's own
+   scale: the argument at reading size, the citations well under it. The
+   references are quieter by size only — they stay at full ink, because a
+   citation nobody can read is not a citation.
+   ─────────────────────────────────────────────────────────── */
+
+.help {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  /* Clears the masthead, which sits over the top of the sheet. */
+  padding: var(--panel-top) var(--s5) var(--s5);
+  color: #67301a;
+  font-family: var(--font-read);
+}
+
+.help__body {
+  margin: 0;
+  font-size: var(--t-body);
+  line-height: var(--lh-read);
+  text-wrap: pretty;
+}
+
+.help__signoff {
+  margin: var(--s5) 0 0;
+  font-size: var(--t-body);
+  font-style: italic;
+  line-height: var(--lh-read);
+}
+
+/* margin-top: auto pushes the citations to the sheet's floor, so the panel
+   fills its box instead of stacking against the top of it. */
+.help__refs-title {
+  margin: auto 0 var(--s2);
+  padding-top: var(--s5);
+  border-top: 1px solid rgba(103, 48, 26, 0.22);
+  font-weight: 400;
+  font-size: var(--t-meta);
+  letter-spacing: var(--ls-meta);
+  text-transform: uppercase;
+}
+
+.help__refs {
+  margin: 0;
+  padding-left: 1.4em;
+  /* Deliberately well under the body — the panel's argument is what is being
+     read, and these are what it rests on. */
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.help__refs li + li {
+  margin-top: var(--s2);
+}
+
+/* ───────────────────────────────────────────────────────────
+   Calendar panel
+
+   Set in the sheet's own warm brown throughout — it is the same surface and
+   the same voice as the toggle above it. Squares are square, as drawn, so the
+   grid keeps its proportions as the sheet's width changes.
+   ─────────────────────────────────────────────────────────── */
+
+.cal {
+  flex: 1 1 auto;
+  --cal-ink:      #67301a;
+  --cal-ink-soft: rgba(103, 48, 26, 0.34);   /* days outside the month */
+  --cal-mark:     rgba(103, 48, 26, 0.75);
+  --cal-today:    rgba(198, 168, 148, 0.55); /* the disc behind today */
+
+  /* The masthead sits over the top of the sheet, so the panel starts below it
+     rather than at the sheet's own padding line. */
+  padding: var(--panel-top) var(--s5) var(--s5);
+  color: var(--cal-ink);
+  font-family: var(--font-read);
+}
+
+.cal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  margin-bottom: var(--s6);
+}
+
+.cal__title {
+  margin: 0;
+  font-family: var(--font-read);
+  font-weight: 400;
+  font-size: var(--t-title);
+  line-height: var(--lh-title);
+  text-align: center;
+}
+
+.cal__step {
+  display: grid;
+  place-items: center;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  transition: background-color var(--d-quick) var(--ease-out);
+}
+
+.cal__step:hover {
+  background: rgba(250, 235, 226, 0.45);
+}
+
+.cal__step svg {
+  width: 22px;
+  height: 22px;
+}
+
+.cal__grid {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.cal__grid th {
+  padding-bottom: var(--s4);
+  font-weight: 400;
+  font-size: var(--t-meta);
+  letter-spacing: var(--ls-meta);
+  /* The day names are labels, not data: quieter than the numbers under them. */
+  opacity: 0.72;
+}
+
+.cal__grid td {
+  /* Square cells, as drawn. The row height follows the column width, so the
+     grid holds its shape at any sheet width. */
+  aspect-ratio: 1;
+  padding: 0;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.cal__day {
+  display: grid;
+  place-items: center;
+  width: 2em;
+  height: 2em;
+  margin: 0 auto;
+  border-radius: 50%;
+  font-size: var(--t-read);
+  line-height: 1;
+}
+
+.cal__grid td[data-outside] .cal__day {
+  color: var(--cal-ink-soft);
+}
+
+.cal__day[data-today="true"] {
+  background: var(--cal-today);
+}
+
+/* The mark lives under the number rather than on it, so it never lands on a
+   digit — and the row keeps its height whether or not there is one, so the
+   grid doesn't shift as the toggle filters it. */
+.cal__marks {
+  display: flex;
+  justify-content: center;
+  min-height: 9px;
+  margin-top: 3px;
+}
+
+.cal__dot {
+  display: block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--cal-mark);
+}
+
+/* A day with something behind it is a button; a day without is plain text, so
+   there are no dead controls to tab through. */
+.cal__open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-md);
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.cal__open:hover .cal__day:not([data-today="true"]) {
+  background: rgba(250, 235, 226, 0.55);
+}
+
+.cal__caption {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  margin: var(--s6) 0 0;
+  font-size: var(--t-ui);
+}
+
 /* On desktop the clock moves to the centre of the page. The wordmark stays in
    the left gutter; the two outer columns are equal, so column 2 is centred on
    the viewport rather than on whatever is left over beside the wordmark.
@@ -243,6 +667,14 @@ body {
    aspect  below 3:4 the artwork stops being full bleed and shifts right,
            bringing the canopy's left edge across the centre line. */
 @media (min-width: 700px) and (min-aspect-ratio: 3 / 4) {
+  /* The render's 8.5% top inset. Held back on phones, where the same share of
+     a short viewport comes straight out of the writing zone. Set on the root
+     rather than on .masthead because the help sheet reads it too, and the
+     sheet is the masthead's sibling. */
+  :root {
+    --masthead-top: max(8vh, env(safe-area-inset-top));
+  }
+
   .masthead {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
@@ -252,6 +684,18 @@ body {
   .masthead__clock {
     grid-column: 2;
     justify-content: center;
+  }
+
+  /* Columns 1 and 3 are 1fr tracks. Without these the controls sit at the
+     start of their track — the pill stretched across it, the round buttons
+     stranded beside the clock instead of out at the right gutter. */
+  .mode {
+    justify-self: start;
+  }
+
+  .masthead__tools {
+    grid-column: 3;
+    justify-self: end;
   }
 }
 
@@ -265,6 +709,37 @@ body {
 @media (max-width: 699.98px) and (min-aspect-ratio: 10 / 7) {
   .masthead {
     max-width: 62%;
+  }
+}
+
+/* On a phone the masthead's three parts can't share a line, so one wraps. It
+   should be the clock: the toggle and the round buttons are the two ends of
+   the row the render draws, and the clock is the one with somewhere else to
+   go. Flex fills lines in order, so the order is what decides this — and the
+   pill is tightened to leave the buttons room on the line they now share. */
+@media (max-width: 699.98px) {
+  .masthead {
+    gap: var(--s2);
+  }
+
+  .mode {
+    gap: var(--s1);
+    padding-inline: var(--s1);
+  }
+
+  /* The chips carry their own padding now, so this is where the width comes
+     back from — 218px of a 334px row, which leaves the buttons their place
+     on it. */
+  .mode__label {
+    padding-inline: var(--s2);
+  }
+
+  .masthead__tools {
+    order: 1;
+  }
+
+  .masthead__clock {
+    order: 2;
   }
 }
 
@@ -315,6 +790,18 @@ body {
   mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-depth));
 }
 
+/* The written half of the column. Its own box so the live region wraps only
+   what has been said, and not the field the next thing is being said in. */
+.sky__log {
+  margin-bottom: var(--s5);
+}
+
+.sky__log:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--r-sm);
+}
+
 .sky__line {
   margin: 0 0 var(--s4);
   color: var(--ink);
@@ -347,12 +834,23 @@ body {
   overflow-wrap: break-word;
 }
 
-/* The opening line. Author-controlled, so Daywalker is safe here. */
+/* The opening line, as the reference render draws it: an italic serif in the
+   same warm brown as the toggle, light and open, larger than the clock but
+   nowhere near a heading. It is an invitation, so it is set below the weight
+   of the writing it invites.
+
+   #79411b is sampled from the render and holds 4.60:1 on the sky — over the
+   3:1 this size needs, and over the 4.5:1 it would need if it were smaller. */
 .sky__line--prompt {
-  font-family: var(--font-display);
-  font-weight: 400;
-  font-size: var(--t-sky-open);
+  font-family: var(--font-read);
+  font-style: italic;
+  font-weight: 300;
+  font-size: var(--t-prompt);
   line-height: var(--lh-title);
+  letter-spacing: 0.02em;
+  color: #79411b;
+  /* The render's gap from the prompt down to the caret. */
+  margin-bottom: var(--s5);
 }
 
 /* Fade is presentational only — the text stays in state and the column
@@ -377,67 +875,69 @@ body {
 }
 
 /* ───────────────────────────────────────────────────────────
-   Composer — the translucent bar in the grass
-   ─────────────────────────────────────────────────────────── */
+   Composer — the caret in the sky
 
-.dock {
-  position: relative;
-  z-index: 1;
-  /* Kept tight: every pixel of chrome here is a pixel the draft can't use
-     before the bar hits the height where its scrim stops working. */
-  padding: var(--s3) var(--gutter) max(var(--s4), env(safe-area-inset-bottom));
-  margin-top: auto;
-}
+   The render draws no bar and no field: under the prompt there is a bare
+   caret at the left margin and nothing else. So the composer is chrome —
+   scrim, blur, border, radius — subtracted down to the text itself, sitting
+   in the writing column where the sky carries --ink at 6.04:1 and the bar's
+   scrim has nothing left to do.
+   ─────────────────────────────────────────────────────────── */
 
 .composer {
   display: flex;
   align-items: flex-end;
   gap: var(--s3);
-  width: 100%;
-  max-width: var(--max-read);
-  margin-inline: auto;
-  padding: var(--s1) var(--s1) var(--s1) var(--s5);
-  /* Exactly half the resting height, which makes the resting bar a true pill
-     (§5, --r-pill) and keeps it a rounded rectangle as the draft grows. A
-     literal 999px radius turns a tall bar into a lozenge with the first line
-     of text sitting outside the curve. */
-  --composer-rest-h: calc(var(--t-sky) * 1.5 + var(--s3) + var(--s1) * 2 + 2px);
-  border-radius: calc(var(--composer-rest-h) / 2);
-  /* The scrim is what makes --paper reliable over textured grass. Without it
-     contrast swings with whichever blade sits behind a given letter. It
-     deepens toward the top because that is where the bar reaches the lighter
-     ground as it grows. */
-  background: linear-gradient(
-    to bottom,
-    var(--bar-scrim-top),
-    var(--bar-scrim-bottom)
-  );
-  -webkit-backdrop-filter: blur(var(--bar-blur));
-  backdrop-filter: blur(var(--bar-blur));
-  border: 1px solid rgba(250, 235, 226, 0.18);
-  box-shadow: var(--e2);
-  transition: border-color var(--d-instant) var(--ease-soft);
 }
 
-.composer:focus-within {
-  border-color: rgba(250, 235, 226, 0.42);
+/* The mark the writing starts from, and the switch between the two ways of
+   giving it. Aligned to the start of its own box rather than centred in it, so
+   the mark sits flush on the prompt's left edge while the button around it
+   still has a width worth aiming at. */
+.composer__mark {
+  display: grid;
+  place-items: center start;
+  flex: 0 0 auto;
+  width: var(--s5);
+  min-height: calc(var(--t-sky) * 1.9);
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  /* Sampled from the render — warmer than the writing it stands in front of. */
+  color: #9f6b48;
+  font-size: var(--t-sky);
+  cursor: pointer;
+}
+
+.composer__stroke {
+  display: block;
+  width: 2px;
+  height: 1.2em;
+  background: currentColor;
+}
+
+.composer__mark svg {
+  width: 0.8em;
+  height: 0.8em;
+}
+
+/* Voice is the mode that is doing something, so it is the one that is stated. */
+.composer__mark[data-input="voice"] {
+  color: #67301a;
 }
 
 .composer__input {
   flex: 1 1 auto;
   min-width: 0;
-  /* One line, plus a lift that puts the last line's centre on the send
-     button's centre while the box stays bottom-aligned as it grows. */
-  --composer-lift: var(--s3);
-  /* One line at whatever size the fluid type resolves to. Kept in step with
-     --composer-rest-h on the bar, which derives the corner radius from it. */
-  min-height: calc(var(--t-sky) * 1.5 + var(--composer-lift));
-  max-height: var(--composer-max-h, 40vh);
-  padding: 0 0 var(--composer-lift);
+  /* One line at whatever size the fluid type resolves to. Height beyond that
+     is set from scrollHeight in App.jsx; the column is what bounds it. */
+  min-height: calc(var(--t-sky) * 1.9);
+  padding: 0;
   border: 0;
   background: none;
   resize: none;
-  overflow-y: auto;
+  overflow: hidden;   /* the column scrolls, not the field */
   /* The same hand the sky is set in, so committing an entry doesn't change
      the shape of the user's own words. §6.1 gives the composer to Newsreader;
      that holds for the spec's home screen, but here the writing lands in
@@ -446,35 +946,26 @@ body {
   font-weight: 400;
   font-style: normal;
   font-size: var(--t-sky);
-  line-height: 1.5;
-  color: var(--paper);
-  caret-color: var(--paper);
-  scrollbar-width: none;
+  line-height: 1.9;   /* matches .sky__line--mine, so nothing shifts on commit */
+  color: var(--ink);
+  /* Sampled from the render — the caret is drawn warmer than the writing. */
+  caret-color: #9f6b48;
 }
 
-.composer__input::-webkit-scrollbar {
-  display: none;
-}
-
-.composer__input::placeholder {
-  color: var(--paper);
-  opacity: 0.62;
-}
-
-.composer__input:focus {
-  outline: none;   /* the ring moves to the bar, which is the visible boundary */
-}
-
-/* The ring belongs on the pill, which is the boundary the user sees, not on
-   the textarea inside it. */
-.composer:has(.composer__input:focus-visible) {
-  box-shadow: var(--e2), var(--focus-ring);
-}
-
+/* A text field always matches :focus-visible, so the global ring would draw a
+   box around the field permanently — the field is focused from load, and the
+   box is the one thing the render doesn't have. The caret is the focus
+   indicator here: it is visible, it is where the next keystroke lands, and it
+   is what the render draws. Every other control keeps the ring (§17). */
+.composer__input:focus,
 .composer__input:focus-visible {
+  outline: none;
   box-shadow: none;
 }
 
+/* Enter commits, so this is the pointer route rather than the only one. It is
+   held back until there is something to send: with an empty draft the screen
+   is the caret and nothing else, which is how the render draws it. */
 .composer__send {
   flex: 0 0 auto;
   display: grid;
@@ -484,9 +975,9 @@ body {
   padding: 0;
   border-radius: var(--r-pill);
   background: var(--moss);
-  /* --moss reads about 2:1 against the scrimmed grass, so the button's edge
-     alone doesn't mark it out. The --paper glyph inside it carries 3.17:1
-     against the moss; this hairline gives the boundary itself some help. */
+  /* --moss reads about 2:1 against the sky, so the button's edge alone doesn't
+     mark it out. The --paper glyph inside it carries 3.17:1 against the moss;
+     this hairline gives the boundary itself some help. */
   border: 1px solid rgba(250, 235, 226, 0.35);
   color: var(--paper);
   cursor: pointer;
@@ -496,8 +987,8 @@ body {
 }
 
 .composer__send:disabled {
-  background: rgba(250, 235, 226, 0.16);
-  color: rgba(250, 235, 226, 0.55);
+  opacity: 0;
+  pointer-events: none;
   cursor: default;
 }
 
@@ -508,6 +999,179 @@ body {
 .composer__send svg {
   width: 20px;
   height: 20px;
+}
+
+/* ───────────────────────────────────────────────────────────
+   Entry card
+
+   A kept entry, picked up off the calendar. Opaque rather than frosted: it is
+   the one surface with a whole entry to read on it, and it can be dragged over
+   the canopy, where a translucent panel would take the leaves with it.
+   ─────────────────────────────────────────────────────────── */
+
+.entry {
+  --entry-ink:   #5b3520;
+  --entry-paper: #faeee4;
+  --entry-chip:  rgba(122, 92, 62, 0.16);
+  --entry-rule:  rgba(122, 92, 62, 0.22);
+
+  position: absolute;
+  z-index: 3;   /* above the sheet and the writing: it has been picked up */
+  width: min(26rem, calc(100vw - var(--s6)));
+  max-height: calc(100dvh - var(--s6));
+  overflow-y: auto;
+  border-radius: var(--r-xl);
+  border: 1px solid rgba(250, 235, 226, 0.6);
+  background: var(--entry-paper);
+  box-shadow: var(--e3);
+  color: var(--entry-ink);
+  font-family: var(--font-read);
+}
+
+.entry__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s3) var(--s3) var(--s2) var(--s4);
+  /* The handle. grab/grabbing is the only affordance a draggable header has,
+     so it is worth being literal about. */
+  cursor: grab;
+  touch-action: none;   /* the drag is ours, not the browser's scroll */
+  user-select: none;
+}
+
+.entry__bar:active {
+  cursor: grabbing;
+}
+
+.entry__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  margin: 0 auto 0 0;
+  font-size: var(--t-meta);
+  opacity: 0.85;
+}
+
+.entry__step,
+.entry__close {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: var(--s6);
+  height: var(--s6);
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.entry__step:hover:not(:disabled),
+.entry__close:hover {
+  background: var(--entry-chip);
+}
+
+.entry__step:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.entry__step svg,
+.entry__close svg {
+  width: 18px;
+  height: 18px;
+}
+
+.entry__body {
+  padding: 0 var(--s5) var(--s5);
+}
+
+.entry__title {
+  margin: 0 0 var(--s4);
+  font-weight: 400;
+  font-size: var(--t-title);
+  line-height: var(--lh-title);
+}
+
+.entry__text {
+  margin: 0 0 var(--s4);
+  font-size: var(--t-body);
+  line-height: var(--lh-read);
+  /* The seeded entry breaks its own first line, and a kept entry keeps the
+     shape it was written in. */
+  white-space: pre-line;
+}
+
+.entry__facets {
+  margin: var(--s5) 0 0;
+  padding-top: var(--s5);
+  border-top: 1px solid var(--entry-rule);
+}
+
+.entry__facet {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s4);
+}
+
+.entry__facet + .entry__facet {
+  margin-top: var(--s3);
+}
+
+.entry__facet dt {
+  flex: 0 0 4.5rem;
+  font-size: var(--t-body);
+}
+
+.entry__facet dd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin: 0;
+}
+
+.chip {
+  padding: var(--s1) var(--s3);
+  border-radius: var(--r-pill);
+  background: var(--entry-chip);
+  font-size: var(--t-meta);
+  line-height: 1.6;
+}
+
+.chip--strong {
+  background: #7a5c3e;
+  color: #f7ede2;   /* 5.30:1 */
+}
+
+.entry__action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  width: 100%;
+  min-height: var(--tap-min);
+  margin-top: var(--s5);
+  padding: var(--s3) var(--s4);
+  border: 0;
+  border-radius: var(--r-lg);
+  background: var(--entry-chip);
+  color: inherit;
+  font-family: var(--font-read);
+  font-size: var(--t-body);
+  cursor: pointer;
+  transition: background-color var(--d-quick) var(--ease-out);
+}
+
+.entry__action:hover {
+  background: rgba(122, 92, 62, 0.26);
+}
+
+.entry__action svg {
+  width: 18px;
+  height: 18px;
 }
 
 /* Focus is visible on every interactive element and never removed (§17).

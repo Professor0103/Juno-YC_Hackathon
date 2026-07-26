@@ -40,6 +40,9 @@
      viewport, so nothing changes on mobile. */
   --t-sky:        clamp(1.1875rem, 1rem + 0.85vw, 1.75rem);    /* 19 -> 28px */
   --t-sky-open:   clamp(1.75rem, 1.45rem + 1.3vw, 2.5rem);     /* 28 -> 40px */
+  /* The prompt, measured off the reference render: 32px at a 1498px frame,
+     against a 19px date — the ratio the two are drawn at. */
+  --t-prompt:     clamp(1.75rem, 1.5rem + 0.6vw, 2rem);        /* 28 -> 32px */
   --t-clock:      clamp(0.9375rem, 0.85rem + 0.35vw, 1.125rem);/* 15 -> 18px */
   --t-clock-date: clamp(0.8125rem, 0.76rem + 0.22vw, 0.9375rem);
 
@@ -78,7 +81,11 @@
   --ease-in:   cubic-bezier(0.55, 0.06, 0.68, 0.19);
 
   /* ─── Layout ──────────────────────────────────────────── */
-  --gutter: var(--s5);
+  /* The reference render sets its left margin at 6.4% of the frame and its
+     masthead 8.5% down — an inset that reads as air on a monitor and as waste
+     on a phone. Growing it with the viewport keeps the render's proportions
+     where there is room and holds the spec's 24px where there isn't. */
+  --gutter: clamp(var(--s5), 6vw, var(--s9));
   --max-read: 34rem;
   --tap-min: 44px;
 }

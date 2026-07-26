@@ -2,28 +2,25 @@ import { useEffect } from 'react';
 
 /**
  * Keeps the stage locked to the visual viewport, and bounds the writing column
- * and the input bar to the regions of the illustration where their text
- * actually clears 4.5:1.
+ * to the region of the illustration where its text actually clears 4.5:1.
  *
- * Both bounds are measured from the rendered artwork rather than assumed, so
- * they stay correct when the image is cropped, when the keyboard opens, and
- * when the user zooms text to 200%.
+ * The bound is measured from the rendered artwork rather than assumed, so it
+ * stays correct when the image is cropped, when the keyboard opens, and when
+ * the user zooms text to 200%.
  *
- * The thresholds come from scripts/probe-sky.mjs and scripts/probe-bar.mjs:
+ * The threshold comes from scripts/probe-sky.mjs:
  *
  *   --ink on the sky   >= 6.04:1 above image y 48%, within the left 58%.
  *                      Falls to 3.2:1 over the grey cloud bases below that,
  *                      and over the tree canopy to the right of it.
- *   --paper on the bar >= 4.72:1 with the bar's top edge at image y 62% or
- *                      below, given the gradient scrim in tokens.css. Above
- *                      that the horizon haze is too light to scrim without
- *                      making the bar effectively opaque.
+ *
+ * The composer is inside that column, so this one bound now covers the draft
+ * as well — there is no separate bar over the grass left to measure.
  */
 const SAFE_SKY_Y = 0.48;
 const SAFE_SKY_X = 0.58;
-const BAR_TOP_LIMIT_Y = 0.62;
 
-export function useStageMetrics({ stageRef, artRef, columnRef, dockRef, inputRef }) {
+export function useStageMetrics({ stageRef, artRef, columnRef, mastheadRef }) {
   useEffect(() => {
     const root = document.documentElement;
     let frame = 0;
@@ -41,6 +38,15 @@ export function useStageMetrics({ stageRef, artRef, columnRef, dockRef, inputRef
       const offset = vv ? vv.offsetTop : 0;
       root.style.setProperty('--stage-h', `${height}px`);
       root.style.setProperty('--stage-offset', `${offset}px`);
+
+      // 1b. How tall the masthead actually is. It wraps to two rows on a phone
+      //     and one on a desktop, and the sheet's panels start below it — so
+      //     this has to be measured rather than assumed from the row count.
+      const masthead = mastheadRef?.current;
+      if (masthead) {
+        const mastheadHeight = masthead.getBoundingClientRect().height;
+        root.style.setProperty('--masthead-h', `${mastheadHeight}px`);
+      }
 
       const art = artRef.current;
       const column = columnRef.current;
@@ -70,19 +76,6 @@ export function useStageMetrics({ stageRef, artRef, columnRef, dockRef, inputRef
 
       const columnTop = columnBox.top - stageBox.top;
       root.style.setProperty('--write-max-h', `${Math.max(0, safeBottom - columnTop)}px`);
-
-      // 3. Cap the composer so a long draft grows the bar upward only as far
-      //    as its scrim can still carry --paper.
-      const dock = dockRef.current;
-      const input = inputRef.current;
-      if (dock && input) {
-        const limit = artTop + artBox.height * BAR_TOP_LIMIT_Y;
-        // Everything in the dock that isn't the text itself: padding, border,
-        // safe-area inset. Invariant as the textarea grows.
-        const chrome = dock.getBoundingClientRect().height - input.getBoundingClientRect().height;
-        const available = height - limit - chrome;
-        root.style.setProperty('--composer-max-h', `${Math.max(28, available)}px`);
-      }
     };
 
     const schedule = () => {
@@ -95,10 +88,8 @@ export function useStageMetrics({ stageRef, artRef, columnRef, dockRef, inputRef
     const observer = new ResizeObserver(schedule);
     if (stageRef.current) observer.observe(stageRef.current);
     if (artRef.current) observer.observe(artRef.current);
-    // The dock changes height as the draft grows. Recomputing from it is safe
-    // because the quantity taken from it — the chrome around the text — does
-    // not itself depend on the cap being set.
-    if (dockRef.current) observer.observe(dockRef.current);
+    // Changes height when its controls wrap, which no window event announces.
+    if (mastheadRef?.current) observer.observe(mastheadRef.current);
 
     window.addEventListener('resize', schedule);
     window.addEventListener('orientationchange', schedule);
@@ -118,5 +109,5 @@ export function useStageMetrics({ stageRef, artRef, columnRef, dockRef, inputRef
       window.visualViewport?.removeEventListener('scroll', schedule);
       art?.removeEventListener('load', schedule);
     };
-  }, [stageRef, artRef, columnRef, dockRef, inputRef]);
+  }, [stageRef, artRef, columnRef, mastheadRef]);
 }
