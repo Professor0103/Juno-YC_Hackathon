@@ -11,12 +11,15 @@ import {
 } from './lib/entries.js';
 import { prewarm } from './lib/beat.js';
 import { converse } from './lib/companion.js';
+import { narrate } from './lib/narration.js';
 import { looksLikeCrisis } from './lib/prefilter.js';
 import { privacy } from './lib/privacy.js';
 import { deepen, loadOpeningText, saveReflection } from './lib/reflection.js';
 import { useArtRect } from './lib/useArtRect.js';
 import { useMusic } from './lib/useMusic.js';
+import { usePrefersReducedMotion } from './lib/usePrefersReducedMotion.js';
 import { useStageMetrics } from './lib/useStageMetrics.js';
+import { useVoiceRecorder } from './lib/useVoiceRecorder.js';
 
 /**
  * The Reflection session (PSD 3.1).
@@ -72,7 +75,6 @@ export default function App() {
   const [sheet, setSheet] = useState(null);
   const [entries, setEntries] = useState(() => seedEntries());
   const [cards, setCards] = useState([]);
-  const [input, setInput] = useState('text');
 
   const stageRef = useRef(null);
   const artRef = useRef(null);
@@ -206,6 +208,28 @@ export default function App() {
 
   const handleChange = (event) => {
     setDraft(normaliseForDaywalker(event.target.value));
+  };
+
+  /* A transcript is a draft. It lands in the composer next to whatever was
+     already typed and waits there — speaking a message and sending it are two
+     decisions, and only the writer makes the second one. */
+  const handleTranscript = useCallback((spoken) => {
+    setDraft((current) => normaliseForDaywalker(current ? `${current} ${spoken}` : spoken));
+    inputRef.current?.focus();
+  }, []);
+
+  const handleVoiceError = useCallback((err) => {
+    console.error('[mango] voice input failed', err);
+  }, []);
+
+  const voice = useVoiceRecorder({
+    onTranscript: handleTranscript,
+    onError: handleVoiceError,
+  });
+
+  const toggleVoice = () => {
+    if (voice.status === 'recording') voice.stop();
+    else if (voice.status === 'idle') voice.start();
   };
 
   /**
@@ -511,6 +535,7 @@ export default function App() {
                       {text.author}
                       {text.year_published ? `, ${text.year_published}` : ''}
                     </p>
+                    <NarrationButton text={text.body} />
                   </div>
                 )}
 
@@ -559,16 +584,7 @@ export default function App() {
                   with the resources still on screen above it. */}
               {(!interrupted || interruptedOutcome !== null) && (
                 <form className="composer" onSubmit={submit}>
-                  <button
-                    type="button"
-                    className="composer__mark"
-                    data-input={input}
-                    aria-pressed={input === 'voice'}
-                    onClick={() => setInput(input === 'voice' ? 'text' : 'voice')}
-                  >
-                    <span className="visually-hidden">Voice input</span>
-                    {input === 'voice' ? <MicIcon /> : <span className="composer__stroke" />}
-                  </button>
+                  <VoiceButton status={voice.status} onClick={toggleVoice} />
 
                   <label className="visually-hidden" htmlFor="composer">
                     Write
@@ -601,6 +617,8 @@ export default function App() {
           ) : stage === TALKING ? (
             <>
               <form className="composer" onSubmit={submit}>
+                <VoiceButton status={voice.status} onClick={toggleVoice} />
+
                 <label className="visually-hidden" htmlFor="composer">
                   Write
                 </label>
@@ -1213,16 +1231,7 @@ const BEAR_WIDTH_SHARE = 0.12;
 
 function Bear({ stageRef, artRef }) {
   const rect = useArtRect(stageRef, artRef);
-  const [reducedMotion, setReducedMotion] = useState(
-    () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
-  );
-
-  useEffect(() => {
-    const query = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const onChange = () => setReducedMotion(query.matches);
-    query.addEventListener('change', onChange);
-    return () => query.removeEventListener('change', onChange);
-  }, []);
+  const reducedMotion = usePrefersReducedMotion();
 
   if (!rect) return null;
 
@@ -1277,6 +1286,147 @@ function SendIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+    </svg>
+  );
+}
+
+/**
+ * The mic, in the composer, in both modes. Tap to speak, tap again to stop —
+ * the same button, because starting and stopping one recording is one control.
+ * While the recording is being read it is disabled rather than hidden: the
+ * composer must not move under a thumb that is already there.
+ */
+function VoiceButton({ status, onClick }) {
+  const recording = status === 'recording';
+  const label = recording
+    ? 'Stop recording'
+    : status === 'transcribing'
+      ? 'Reading what you said'
+      : 'Speak instead of typing';
+
+  return (
+    <button
+      type="button"
+      className="composer__mark"
+      data-input={recording ? 'voice' : 'text'}
+      data-status={status}
+      aria-pressed={recording}
+      aria-label={label}
+      disabled={status === 'transcribing'}
+      onClick={onClick}
+    >
+      {status === 'idle' ? <span className="composer__stroke" /> : <MicIcon />}
+    </button>
+  );
+}
+
+/* One loop of icons8-play.gif. The bounce is acknowledgement of the tap, and it
+   has to be allowed to finish before the icon changes under it. */
+const BOUNCE_MS = 1120;
+
+/**
+ * The poem, read aloud.
+ *
+ * Audio is fetched once and kept for the length of the session, so pausing and
+ * starting again is instant and costs nothing — the second play is the same
+ * bytes, not a second synthesis.
+ */
+function NarrationButton({ text }) {
+  const [playing, setPlaying] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [bouncing, setBouncing] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  const reducedMotion = usePrefersReducedMotion();
+
+  const audioRef = useRef(null);
+  const urlRef = useRef(null);
+  const bounceTimer = useRef(null);
+
+  useEffect(
+    () => () => {
+      audioRef.current?.pause();
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+      window.clearTimeout(bounceTimer.current);
+    },
+    [],
+  );
+
+  const play = async () => {
+    if (!reducedMotion) {
+      setBouncing(true);
+      window.clearTimeout(bounceTimer.current);
+      bounceTimer.current = window.setTimeout(() => setBouncing(false), BOUNCE_MS);
+    }
+
+    try {
+      if (!audioRef.current) {
+        setLoading(true);
+        const blob = await narrate(text);
+        urlRef.current = URL.createObjectURL(blob);
+
+        const audio = new Audio(urlRef.current);
+        audio.addEventListener('play', () => setPlaying(true));
+        audio.addEventListener('pause', () => setPlaying(false));
+        audio.addEventListener('ended', () => setPlaying(false));
+        audioRef.current = audio;
+      }
+      await audioRef.current.play();
+      setFailed(false);
+    } catch (err) {
+      // Pausing while play() is still settling rejects it. That is the writer
+      // stopping the reading, not the reading failing.
+      if (err.name === 'AbortError') return;
+      console.error('[mango] could not narrate the text', err);
+      setFailed(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const onClick = () => {
+    if (playing) audioRef.current?.pause();
+    else play();
+  };
+
+  const showBounce = bouncing && !reducedMotion;
+
+  return (
+    <button
+      type="button"
+      className="narration"
+      data-state={playing ? 'playing' : 'idle'}
+      aria-label={playing ? 'Pause the reading' : 'Listen to this'}
+      disabled={loading && !audioRef.current}
+      onClick={onClick}
+    >
+      {playing ? (
+        <PauseIcon />
+      ) : showBounce ? (
+        <img className="narration__bounce" src="/sprites/icons8-play.gif" alt="" />
+      ) : (
+        <PlayIcon />
+      )}
+      <span className="narration__label">
+        {failed ? 'Could not read it' : playing ? 'Pause' : 'Listen'}
+      </span>
+    </button>
+  );
+}
+
+function PlayIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M8 5.5v13l11-6.5z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function PauseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="7" y="5" width="3.5" height="14" rx="1" fill="currentColor" />
+      <rect x="13.5" y="5" width="3.5" height="14" rx="1" fill="currentColor" />
     </svg>
   );
 }
