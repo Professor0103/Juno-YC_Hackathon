@@ -241,6 +241,24 @@ body {
   color: var(--ink);
 }
 
+/* Stands in the toggle's place on Insights, so the lead doesn't stop dead at
+   the wordmark. Sized and coloured off the toggle's own labels rather than the
+   wordmark: it occupies that control's spot, so it should carry that control's
+   weight — a name for the page, not a second piece of branding. Deliberately
+   without the pill, since it is not something to press. */
+.masthead__title {
+  margin: 0;
+  animation: panel-rise var(--d-gentle) var(--ease-out) both;
+  align-self: center;
+  font-family: var(--font-read);
+  font-weight: 400;
+  font-size: var(--t-title);
+  line-height: var(--lh-title);
+  /* The same warm brown the toggle and the round controls are drawn in. */
+  color: #67301a;
+  white-space: nowrap;
+}
+
 .masthead__clock {
   display: flex;
   align-items: baseline;
@@ -526,9 +544,34 @@ body {
    so nothing is lost by hiding it.
 
    Only the writing. The toggle stays, because the render puts it at the top of
-   the panel too. */
+   the panel too.
+
+   It fades rather than cuts, over the same beat the panel arrives on, so the
+   two read as one movement. visibility is what actually takes the writing out
+   of the tab order, so it flips at the end of the fade going out and at the
+   very start coming back — the delay is on one direction only. */
+.sky {
+  transition:
+    opacity var(--d-gentle) var(--ease-out),
+    visibility 0s linear 0s;
+}
+
 .stage:not([data-sheet="none"]) .sky {
+  opacity: 0;
   visibility: hidden;
+  transition:
+    opacity var(--d-gentle) var(--ease-out),
+    visibility 0s linear var(--d-gentle);
+}
+
+/* The panels and the Insights layer arrive on the same movement: up a little,
+   and in. Used on mount, so there is nothing to co-ordinate — the element is
+   simply not there until it is. */
+@keyframes panel-rise {
+  from {
+    opacity: 0;
+    transform: translateY(var(--s3));
+  }
 }
 
 /* The mode toggle has nothing to do with these panels, so it goes with the
@@ -559,6 +602,9 @@ body {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
+  /* The sheet stays put when one panel replaces another, so the content needs
+     its own arrival — otherwise a swap between panels is a cut. */
+  animation: panel-rise var(--d-gentle) var(--ease-out) both;
   /* Clears the masthead, which sits over the top of the sheet. */
   padding: var(--panel-top) var(--s5) var(--s5);
   color: #67301a;
@@ -621,6 +667,9 @@ body {
 
 .cal {
   flex: 1 1 auto;
+  /* The sheet stays put when one panel replaces another, so the content needs
+     its own arrival — otherwise a swap between panels is a cut. */
+  animation: panel-rise var(--d-gentle) var(--ease-out) both;
   --cal-ink:      #67301a;
   --cal-ink-soft: rgba(103, 48, 26, 0.34);   /* days outside the month */
   --cal-mark:     rgba(103, 48, 26, 0.75);
@@ -899,6 +948,10 @@ body {
    what has been said, and not the field the next thing is being said in. */
 .sky__log {
   margin-bottom: var(--s5);
+  /* Remounted on a mode change (App.jsx keys it), so the swap between Journal
+     and Reflection arrives on the same movement the panels use instead of
+     cutting. Within a mode this runs once, on the first paint. */
+  animation: panel-rise var(--d-gentle) var(--ease-out) both;
 }
 
 /* Nothing written yet: the gap below the log would push the field down the
@@ -1202,6 +1255,9 @@ body {
   overscroll-behavior: contain;
   color: #5b3520;
   font-family: var(--font-read);
+  /* Unlike the sheet, this layer is mounted only while it is open, so it has no
+     resting state to transition from — the arrival is an animation. */
+  animation: panel-rise var(--d-gentle) var(--ease-out) both;
 }
 
 /* ─── The map ─────────────────────────────────────────────── */

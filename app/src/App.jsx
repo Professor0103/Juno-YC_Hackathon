@@ -87,6 +87,11 @@ export default function App() {
   const [entries, setEntries] = useState(() => seedEntries());
   const [cards, setCards] = useState([]);
 
+  /* Whether the journal's opening line has been handed over to the field yet,
+     and whether it is in the middle of doing so. */
+  const [started, setStarted] = useState(false);
+  const [starting, setStarting] = useState(false);
+
   /* Mango's spoken voice, reflection only. One reading at a time across the
      poem and every turn's own button — starting a new one stops whichever was
      already sounding, rather than layering over it. */
@@ -499,7 +504,18 @@ export default function App() {
       {sheet === 'insights' && <Analytics entries={entries} />}
 
       <header className="masthead" ref={mastheadRef}>
-        <ModeToggle mode={mode} onChange={changeMode} />
+        {/* The wordmark holds the far left, as it always did; the toggle sits
+            beside it, which is still the position the render puts it in. */}
+        <div className="masthead__lead">
+          <h1 className="masthead__wordmark" data-face="daywalker">
+            mango
+          </h1>
+          <ModeToggle mode={mode} onChange={changeMode} />
+          {/* Insights hides the toggle — the map of themes is not written in a
+              mode — so the row would otherwise end at the wordmark. The panel's
+              own name takes the place the toggle held. */}
+          {sheet === 'insights' && <h2 className="masthead__title">Insights</h2>}
+        </div>
         <Clock />
         <div className="masthead__tools">
           <SheetButton label="Analytics" panel="insights" open={sheet} onToggle={setSheet}>
@@ -533,6 +549,10 @@ export default function App() {
       <main className="sky">
         <div className="sky__column" ref={columnRef} onScroll={updateFade}>
           <div
+            /* Keyed on the mode so switching remounts the log, which is what
+               lets it fade in rather than cut — the two modes never share a
+               line anyway, so there is nothing to preserve across the swap. */
+            key={mode}
             className="sky__log"
             tabIndex={0}
             role="log"
@@ -969,10 +989,6 @@ function Calendar({ markedDays, mode, onOpenDay }) {
           ))}
         </tbody>
       </table>
-
-      <p className="cal__caption">
-        <span className="cal__dot" aria-hidden="true" /> {MODE_LABEL[mode]}
-      </p>
     </div>
   );
 }
@@ -1556,7 +1572,13 @@ function VoiceButton({ status, onClick }) {
       disabled={status === 'transcribing'}
       onClick={onClick}
     >
-      {status === 'idle' ? <span className="composer__stroke" /> : <MicIcon />}
+      {status === 'idle' ? (
+        <span className="composer__caret" aria-hidden="true">
+          &gt;
+        </span>
+      ) : (
+        <MicIcon />
+      )}
     </button>
   );
 }

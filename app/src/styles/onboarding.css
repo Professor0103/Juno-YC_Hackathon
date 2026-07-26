@@ -196,7 +196,7 @@
   gap: var(--s3);
   margin-top: var(--s6);
 }
-.chip {
+.chips .chip {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -217,16 +217,16 @@
     border-color var(--d-instant) var(--ease-soft);
   -webkit-tap-highlight-color: transparent;
 }
-.chip[aria-checked='true'] {
+.chips .chip[aria-checked='true'] {
   background: var(--moss);
   border-color: var(--moss);
   color: var(--paper);
 }
-.chip:focus-visible {
+.chips .chip:focus-visible {
   outline: 2px solid var(--moss);
   outline-offset: 3px;
 }
-.chip .dot {
+.chips .chip .dot {
   width: 20px;
   height: 20px;
   border-radius: var(--r-pill);
@@ -237,11 +237,11 @@
     background var(--d-instant) var(--ease-soft),
     border-color var(--d-instant) var(--ease-soft);
 }
-.chip[aria-checked='true'] .dot {
+.chips .chip[aria-checked='true'] .dot {
   background: var(--paper);
   border-color: var(--paper);
 }
-.chip[aria-checked='true'] .dot::after {
+.chips .chip[aria-checked='true'] .dot::after {
   content: '';
   position: absolute;
   inset: 5px;
@@ -447,7 +447,7 @@
   opacity: 1;
   pointer-events: auto;
 }
-.sheet {
+.sheet-scrim .sheet {
   position: absolute;
   left: 0;
   right: 0;
