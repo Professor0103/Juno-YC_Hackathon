@@ -360,7 +360,8 @@ body {
 }
 
 .sheetbutton:hover,
-.sheetbutton[aria-expanded="true"] {
+.sheetbutton[aria-expanded="true"],
+.sheetbutton[aria-pressed="true"] {
   background: rgba(250, 235, 226, 0.52);
 }
 

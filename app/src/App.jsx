@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { auditDaywalkerGlyphs, normaliseForDaywalker } from './lib/daywalker.js';
 import { CRISIS_HEADING, CRISIS_RESOURCES } from './lib/crisis.js';
 import {
@@ -74,6 +74,19 @@ export default function App() {
   const [sheet, setSheet] = useState(null);
   const [entries, setEntries] = useState(() => seedEntries());
   const [cards, setCards] = useState([]);
+
+  /* Mango's spoken voice, reflection only. One reading at a time across the
+     poem and every turn's own button — starting a new one stops whichever was
+     already sounding, rather than layering over it. */
+  const [autoNarrate, setAutoNarrate] = useState(true);
+  const activeAudioRef = useRef(null);
+
+  const toggleAutoNarrate = () => {
+    setAutoNarrate((current) => {
+      if (current) activeAudioRef.current?.pause();
+      return !current;
+    });
+  };
 
   const stageRef = useRef(null);
   const artRef = useRef(null);
@@ -475,6 +488,17 @@ export default function App() {
         <ModeToggle mode={mode} onChange={changeMode} />
         <Clock />
         <div className="masthead__tools">
+          {mode === 'reflection' && (
+            <button
+              type="button"
+              className="sheetbutton"
+              aria-pressed={autoNarrate}
+              aria-label={autoNarrate ? 'Turn off spoken responses' : 'Turn on spoken responses'}
+              onClick={toggleAutoNarrate}
+            >
+              {autoNarrate ? <SpeakerIcon /> : <SpeakerMuteIcon />}
+            </button>
+          )}
           <SheetButton
             label="Calendar"
             panel="calendar"
@@ -532,7 +556,7 @@ export default function App() {
                       {text.author}
                       {text.year_published ? `, ${text.year_published}` : ''}
                     </p>
-                    <NarrationButton text={text.body} />
+                    <NarrationButton text={text.body} activeAudioRef={activeAudioRef} />
                   </div>
                 )}
 
@@ -546,9 +570,14 @@ export default function App() {
                       {turn.content}
                     </p>
                   ) : (
-                    <p key={index} className="sky__line sky__line--mango">
-                      {turn.content}
-                    </p>
+                    <Fragment key={index}>
+                      <p className="sky__line sky__line--mango">{turn.content}</p>
+                      <NarrationButton
+                        text={turn.content}
+                        autoPlay={autoNarrate && index === turns.length - 1}
+                        activeAudioRef={activeAudioRef}
+                      />
+                    </Fragment>
                   ),
                 )}
 
@@ -700,6 +729,29 @@ function CalendarIcon() {
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <rect x="3.5" y="5.5" width="17" height="15" rx="2.5" stroke="currentColor" strokeWidth="1.6" />
       <path d="M3.5 10h17M8 3.5v4M16 3.5v4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function SpeakerIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M4 9.5v5h4l5 4v-13l-5 4z" fill="currentColor" />
+      <path
+        d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function SpeakerMuteIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M4 9.5v5h4l5 4v-13l-5 4z" fill="currentColor" />
+      <path d="M16 9.5l4.5 5M20.5 9.5 16 14.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
     </svg>
   );
 }
@@ -1259,7 +1311,7 @@ const BOUNCE_MS = 1120;
  * starting again is instant and costs nothing — the second play is the same
  * bytes, not a second synthesis.
  */
-function NarrationButton({ text }) {
+function NarrationButton({ text, autoPlay = false, activeAudioRef }) {
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const [bouncing, setBouncing] = useState(false);
@@ -1299,6 +1351,14 @@ function NarrationButton({ text }) {
         audio.addEventListener('ended', () => setPlaying(false));
         audioRef.current = audio;
       }
+
+      // One voice at a time: a reading that starts stops whichever one — the
+      // poem, or another turn — was already sounding.
+      if (activeAudioRef && activeAudioRef.current !== audioRef.current) {
+        activeAudioRef.current?.pause();
+      }
+      if (activeAudioRef) activeAudioRef.current = audioRef.current;
+
       await audioRef.current.play();
       setFailed(false);
     } catch (err) {
@@ -1311,6 +1371,14 @@ function NarrationButton({ text }) {
       setLoading(false);
     }
   };
+
+  /* Mount-only: fires once, for the turn that just arrived, and never again
+     on later re-renders — a turn that arrived while muted stays silent even
+     if the user un-mutes afterwards. */
+  useEffect(() => {
+    if (autoPlay) play();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const onClick = () => {
     if (playing) audioRef.current?.pause();
