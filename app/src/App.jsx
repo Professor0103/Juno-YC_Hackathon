@@ -15,6 +15,7 @@ import { looksLikeCrisis } from './lib/prefilter.js';
 import { privacy } from './lib/privacy.js';
 import { deepen, loadOpeningText, saveReflection } from './lib/reflection.js';
 import { useArtRect } from './lib/useArtRect.js';
+import { useMusic } from './lib/useMusic.js';
 import { useStageMetrics } from './lib/useStageMetrics.js';
 
 /**
@@ -80,6 +81,8 @@ export default function App() {
   const mastheadRef = useRef(null);
 
   useStageMetrics({ stageRef, artRef, columnRef, mastheadRef });
+
+  const music = useMusic();
 
   useEffect(() => {
     prewarm('chat', 'reflection-deepen');
@@ -640,6 +643,26 @@ export default function App() {
         </div>
       </main>
 
+      {/* Bottom left, on the grass rather than in the masthead: the music is not
+          one of the session's controls and should not sit among them. */}
+      <div className="music">
+        <button className="music__button" type="button" onClick={music.shuffle}>
+          <span className="visually-hidden">Shuffle to another track</span>
+          <ShuffleIcon />
+        </button>
+        <button
+          className="music__button"
+          type="button"
+          aria-pressed={music.playing}
+          onClick={music.toggle}
+        >
+          <span className="visually-hidden">
+            {music.playing ? 'Turn the music off' : 'Turn the music on'}
+          </span>
+          <NoteIcon playing={music.playing} />
+        </button>
+      </div>
+
       {cards.map((card) => {
         const found = entriesOn(entries, card.day, card.mode);
         const entry = found[Math.min(card.index, found.length - 1)];
@@ -674,6 +697,55 @@ function SheetButton({ label, panel, open, onToggle, children }) {
       <span className="visually-hidden">{label}</span>
       {children}
     </button>
+  );
+}
+
+/* The conventional shuffle glyph: two paths crossing, each ending in an
+   arrowhead. Drawn at the same 24-unit box and 1.6 stroke as the masthead icons
+   so the whole set looks like one hand made it. */
+function ShuffleIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <g
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M3 17.5h2.1c1.3 0 2.6-.66 3.35-1.75l6.1-8.5C15.3 6.16 16.6 5.5 17.9 5.5H21" />
+        <path d="m17.9 2.6 3 2.9-3 2.9" />
+        <path d="M3 6.5h2.1c1.3 0 2.6.66 3.35 1.75l.6.85" />
+        <path d="M21 17.5h-3.1c-1.3 0-2.6-.66-3.35-1.75l-.6-.85" />
+        <path d="m17.9 14.6 3 2.9-3 2.9" />
+      </g>
+    </svg>
+  );
+}
+
+/* A beamed pair of quavers — two heads, two stems, one beam. The slash is the
+   off state, so the same glyph carries the answer to "is the music on" rather
+   than needing a second icon beside it. */
+function NoteIcon({ playing }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M9.4 17.6V5.4l9-2v11.4"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <ellipse cx="7.1" cy="17.7" rx="2.4" ry="1.9" fill="currentColor" />
+      <ellipse cx="16.1" cy="15.7" rx="2.4" ry="1.9" fill="currentColor" />
+      {!playing && (
+        <path
+          d="M3.6 20.4 20.4 3.6"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+        />
+      )}
+    </svg>
   );
 }
 
