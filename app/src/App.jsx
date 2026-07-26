@@ -3,13 +3,20 @@ import { auditDaywalkerGlyphs, normaliseForDaywalker } from './lib/daywalker.js'
 import { CRISIS_HEADING, CRISIS_RESOURCES } from './lib/crisis.js';
 import {
   MODE_LABEL,
+  MODE_NAME,
   dayKey,
   daysWithEntries,
   entriesOn,
   makeEntry,
   seedEntries,
 } from './lib/entries.js';
-import { composeFallbackQuestion } from './lib/fallbacks.js';
+import {
+  emotionalBalance,
+  layoutGraph,
+  moodTrend,
+  themeLists,
+  themeStats,
+} from './lib/insights.js';
 import { looksLikeCrisis } from './lib/prefilter.js';
 import { privacy } from './lib/privacy.js';
 import { deepen, loadOpeningText, prewarm, saveReflection } from './lib/reflection.js';
@@ -29,7 +36,12 @@ const KEPT = 'kept';
 
 /* The journal opening line. Set in Newsreader, so §6.2's missing-glyph problem
    doesn't reach it. Not a question about the user's interior state (§16). */
-const OPENING = 'Start anywhere.';
+/**
+ * The line that stands where the writing will go, in both modes. It is not a
+ * heading above the field — it is the field's resting state, which is why the
+ * writing starts exactly where it was.
+ */
+const START = 'Start here';
 
 const formatDate = (date) =>
   date
@@ -51,11 +63,10 @@ let nextId = 1;
 const line = (who, text) => ({ id: nextId++, who, text });
 
 export default function App() {
-  const [mode, setMode] = useState('journal');
+  const [mode, setMode] = useState('reflection');
 
   /* Journal session — local lines in the sky column. */
-  const [lines, setLines] = useState(() => [line('opening', OPENING)]);
-  const [waiting, setWaiting] = useState(false);
+  const [lines, setLines] = useState([]);
 
   /* Reflection session — served text and turns until kept. */
   const [stage, setStage] = useState(READING);
@@ -71,6 +82,10 @@ export default function App() {
   const [entries, setEntries] = useState(() => seedEntries());
   const [cards, setCards] = useState([]);
   const [input, setInput] = useState('text');
+  /* Whether the journal's opening line has been handed over to the field yet,
+     and whether it is in the middle of doing so. */
+  const [started, setStarted] = useState(false);
+  const [starting, setStarting] = useState(false);
 
   const stageRef = useRef(null);
   const artRef = useRef(null);
@@ -123,7 +138,7 @@ export default function App() {
       column.scrollTop = readFromTop ? 0 : column.scrollHeight;
     }
     updateFade();
-  }, [mode, lines, waiting, draft, text, turns, streaming, readFromTop, updateFade]);
+  }, [mode, lines, draft, text, turns, streaming, readFromTop, updateFade]);
 
   useEffect(() => {
     const column = columnRef.current;
@@ -154,6 +169,7 @@ export default function App() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [sheet]);
+
 
   useEffect(() => {
     const inputEl = inputRef.current;
@@ -204,23 +220,20 @@ export default function App() {
     setDraft(normaliseForDaywalker(event.target.value));
   };
 
-  const submitJournal = async (event) => {
+  /**
+   * Journal is journalling and nothing else — nothing answers, nothing asks.
+   * What is written is kept as an entry, the field is cleared, and the writing
+   * stays on screen above it so the day collates as it goes. Reflection is the
+   * mode where something writes back.
+   */
+  const submitJournal = (event) => {
     event.preventDefault();
     const written = draft.trim();
-    if (!written || waiting) return;
+    if (!written) return;
 
-    const mine = line('mine', written);
     setDraft('');
-    setLines((current) => [...current, mine]);
+    setLines((current) => [...current, line('mine', written)]);
     setEntries((current) => [...current, makeEntry({ text: written, mode })]);
-    setWaiting(true);
-
-    try {
-      const question = composeFallbackQuestion(written);
-      setLines((current) => [...current, line('mango', question)]);
-    } finally {
-      setWaiting(false);
-    }
   };
 
   const submitReflection = async (event) => {
@@ -286,8 +299,66 @@ export default function App() {
     setInterruptedOutcome('discarded');
   };
 
-  const canSend =
-    draft.trim().length > 0 && (mode === 'journal' ? !waiting : !busy);
+  /* Whether the field is out, in whichever mode. Journal has one switch of its
+     own; reflection's is the session stage it was already keeping. */
+  const writing = mode === 'journal' ? started : stage === TALKING;
+
+  /* The resting line hands its place over to the field. The two are separated
+     by a beat so the line can fade rather than cut, and the field takes focus
+     on arrival — pressing the line is the user saying they are ready to write,
+     so it would be wrong to make them click a second time. */
+  const begin = () => {
+    if (starting || writing) return;
+    setStarting(true);
+    window.setTimeout(() => {
+      if (mode === 'journal') setStarted(true);
+      else setStage(TALKING);
+      setStarting(false);
+      // Once the field has mounted in the place the line just left.
+      window.requestAnimationFrame(() => inputRef.current?.focus());
+    }, 260);
+  };
+
+  /**
+   * Puts the pen down: the field goes back to being the resting line.
+   *
+   * Only with an empty draft. Escape and a stray click elsewhere are both easy
+   * to do by accident, and this screen's one unbreakable rule is that writing
+   * is never lost — so a draft with anything in it keeps the field, and the
+   * user closes it by clearing it or sending it.
+   */
+  const rest = useCallback(() => {
+    if (draft.trim()) return;
+    if (mode === 'journal') setStarted(false);
+    else if (stage === TALKING) setStage(READING);
+  }, [draft, mode, stage]);
+
+  /* Escape, or a press anywhere that isn't the field itself, puts the pen
+     down. The press is caught on pointerdown rather than click so it fires
+     before focus moves — and anything that is its own control (the toggle, the
+     masthead buttons, an open sheet, an entry card) is left to do its own job.
+     Declared here rather than up with the other effects: its dependencies are
+     defined just above it. */
+  useEffect(() => {
+    if (!writing) return;
+
+    const onKey = (event) => {
+      if (event.key === 'Escape' && !sheet) rest();
+    };
+    const onPointerDown = (event) => {
+      if (event.target.closest('.composer, .masthead, .sheet, .entry')) return;
+      rest();
+    };
+
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('pointerdown', onPointerDown);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('pointerdown', onPointerDown);
+    };
+  }, [writing, sheet, rest]);
+
+  const canSend = draft.trim().length > 0 && (mode === 'journal' || !busy);
 
   const waitingOnText =
     mode === 'reflection' &&
@@ -351,9 +422,10 @@ export default function App() {
 
       <div
         className="sheet"
-        data-open={sheet !== null}
         data-panel={sheet ?? 'none'}
-        aria-hidden={sheet === null}
+        /* Insights is not on the sheet — it has its own layer below. */
+        data-open={sheet === 'calendar' || sheet === 'help'}
+        aria-hidden={sheet !== 'calendar' && sheet !== 'help'}
       >
         {sheet === 'calendar' && (
           <Calendar
@@ -365,10 +437,24 @@ export default function App() {
         {sheet === 'help' && <HelpPanel />}
       </div>
 
+      {/* Its own layer, not the sheet: the map of themes is drawn on the sky
+          with nothing behind it. */}
+      {sheet === 'insights' && <Analytics entries={entries} />}
+
       <header className="masthead" ref={mastheadRef}>
-        <ModeToggle mode={mode} onChange={setMode} />
+        {/* The wordmark holds the far left, as it always did; the toggle sits
+            beside it, which is still the position the render puts it in. */}
+        <div className="masthead__lead">
+          <h1 className="masthead__wordmark" data-face="daywalker">
+            mango
+          </h1>
+          <ModeToggle mode={mode} onChange={setMode} />
+        </div>
         <Clock />
         <div className="masthead__tools">
+          <SheetButton label="Analytics" panel="insights" open={sheet} onToggle={setSheet}>
+            <ChartIcon />
+          </SheetButton>
           <SheetButton
             label="Calendar"
             panel="calendar"
@@ -392,29 +478,18 @@ export default function App() {
             aria-live="polite"
             aria-label={
               mode === 'journal'
-                ? 'What you have written, and what Mango has asked'
+                ? 'What you have written today'
                 : 'The text, what you have written, and what Mango has asked'
             }
           >
             {mode === 'journal' ? (
-              <>
-                {lines.map((entry) => (
-                  <p
-                    key={entry.id}
-                    className={`sky__line sky__line--${entry.who === 'opening' ? 'prompt' : entry.who}`}
-                    data-face={entry.who === 'mine' ? 'daywalker' : 'newsreader'}
-                  >
-                    {entry.text}
-                  </p>
-                ))}
-                {waiting && (
-                  <p className="sky__line sky__line--mango" aria-label="Mango is writing">
-                    <span className="sky__waiting" aria-hidden="true">
-                      |
-                    </span>
-                  </p>
-                )}
-              </>
+              /* Nothing answers here — the day's entries collate above the
+                 field and that is the whole of it. */
+              lines.map((entry) => (
+                <p key={entry.id} className="sky__line sky__line--mine" data-face="daywalker">
+                  {entry.text}
+                </p>
+              ))
             ) : (
               <>
                 {text && (
@@ -456,87 +531,47 @@ export default function App() {
             )}
           </div>
 
-          {mode === 'journal' ? (
-            <form className="composer" onSubmit={submit}>
-              <button
-                type="button"
-                className="composer__mark"
-                data-input={input}
-                aria-pressed={input === 'voice'}
-                onClick={() => setInput(input === 'voice' ? 'text' : 'voice')}
-              >
-                <span className="visually-hidden">Voice input</span>
-                {input === 'voice' ? <MicIcon /> : <span className="composer__stroke" />}
-              </button>
-
-              <label className="visually-hidden" htmlFor="composer">
-                Write
-              </label>
-              <textarea
-                id="composer"
-                className="composer__input"
-                ref={inputRef}
-                value={draft}
-                onChange={handleChange}
-                onKeyDown={handleKeyDown}
-                rows={1}
-                autoComplete="off"
-                spellCheck="true"
-                autoFocus
-              />
-              <button className="composer__send" type="submit" disabled={!canSend}>
-                <span className="visually-hidden">Send</span>
-                <SendIcon />
-              </button>
-            </form>
-          ) : interrupted ? (
+          {/* One slot, whichever mode. The field and the line that rests in
+              its place are the same piece of the layout, which is what makes
+              the writing start exactly where the line was. */}
+          {mode === 'reflection' && interrupted ? (
             <SupportCard
               outcome={interruptedOutcome}
               onKeep={keepInterrupted}
               onDiscard={discardInterrupted}
             />
-          ) : stage === TALKING ? (
+          ) : mode === 'reflection' && stage === KEPT ? (
+            <p className="note">{privacy.kept}</p>
+          ) : writing ? (
             <>
-              <form className="composer" onSubmit={submit}>
-                <label className="visually-hidden" htmlFor="composer">
-                  Write
-                </label>
-                <textarea
-                  id="composer"
-                  className="composer__input"
-                  ref={inputRef}
-                  value={draft}
-                  onChange={handleChange}
-                  onKeyDown={handleKeyDown}
-                  rows={1}
-                  placeholder={turns.length === 0 ? 'Write' : 'Go on'}
-                  autoComplete="off"
-                  spellCheck="true"
-                />
-                <button className="composer__send" type="submit" disabled={!canSend}>
-                  <span className="visually-hidden">Send</span>
-                  <SendIcon />
-                </button>
-              </form>
+              <Composer
+                draft={draft}
+                inputRef={inputRef}
+                input={input}
+                onInputChange={setInput}
+                onChange={handleChange}
+                onKeyDown={handleKeyDown}
+                onSubmit={submit}
+                canSend={canSend}
+              />
 
-              {canLeave && (
+              {mode === 'reflection' && canLeave && (
                 <button className="leave" type="button" onClick={keep} disabled={busy}>
                   I&rsquo;ll leave it here
                 </button>
               )}
             </>
-          ) : stage === READING ? (
+          ) : (
             <button
-              className="offer"
               type="button"
-              onClick={() => setStage(TALKING)}
-              disabled={!text}
+              className="sky__line sky__line--prompt sky__start"
+              data-leaving={starting || undefined}
+              onClick={begin}
+              disabled={mode === 'reflection' && !text}
             >
-              Respond
+              {START}
             </button>
-          ) : stage === KEPT ? (
-            <p className="note">{privacy.kept}</p>
-          ) : null}
+          )}
         </div>
       </main>
 
@@ -589,6 +624,7 @@ function CalendarIcon() {
 function HelpPanel() {
   return (
     <div className="help">
+      <h2 className="help__title">About us</h2>
       <p className="help__body">
         Healthcare workers face high rates of burnout, yet a study of 10,038 Australian
         doctors found that fear of losing confidentiality or career standing, not lack of
@@ -767,9 +803,6 @@ function Calendar({ markedDays, mode, onOpenDay }) {
         </tbody>
       </table>
 
-      <p className="cal__caption">
-        <span className="cal__dot" aria-hidden="true" /> {MODE_LABEL[mode]}
-      </p>
     </div>
   );
 }
@@ -937,15 +970,241 @@ function ModeToggle({ mode, onChange }) {
       onClick={() => onChange(reflecting ? 'journal' : 'reflection')}
     >
       <span className="mode__label" data-active={!reflecting} aria-hidden="true">
-        Journal
+        {MODE_NAME.journal}
       </span>
       <span className="mode__track" aria-hidden="true">
         <span className="mode__knob" />
       </span>
       <span className="mode__label" data-active={reflecting} aria-hidden="true">
-        Reflection
+        {MODE_NAME.reflection}
       </span>
     </button>
+  );
+}
+
+/**
+ * The writing field, shared by both modes. It used to be written out twice and
+ * the two had drifted — only the journal one carried the start mark, and only
+ * the reflection one had a placeholder. One component, so a change to how
+ * writing is taken can only be made in one place.
+ */
+function Composer({
+  draft,
+  inputRef,
+  input,
+  onInputChange,
+  onChange,
+  onKeyDown,
+  onSubmit,
+  canSend,
+  autoFocus = false,
+}) {
+  return (
+    <form className="composer" onSubmit={onSubmit}>
+      {/* Where the writing starts. A stroke standing in the sky in text mode, a
+          microphone in voice mode — the mark itself is the switch between the
+          two (§10.4: text is always available, so this changes what is
+          offered, never what is possible). */}
+      <button
+        type="button"
+        className="composer__mark"
+        data-input={input}
+        aria-pressed={input === 'voice'}
+        onClick={() => onInputChange(input === 'voice' ? 'text' : 'voice')}
+      >
+        <span className="visually-hidden">Voice input</span>
+        {input === 'voice' ? (
+          <MicIcon />
+        ) : (
+          <span className="composer__caret" aria-hidden="true">
+            &gt;
+          </span>
+        )}
+      </button>
+
+      <label className="visually-hidden" htmlFor="composer">
+        Write
+      </label>
+      <textarea
+        id="composer"
+        className="composer__input"
+        ref={inputRef}
+        value={draft}
+        onChange={onChange}
+        onKeyDown={onKeyDown}
+        rows={1}
+        autoComplete="off"
+        spellCheck="true"
+        autoFocus={autoFocus}
+      />
+      <button className="composer__send" type="submit" disabled={!canSend}>
+        <span className="visually-hidden">Send</span>
+        <SendIcon />
+      </button>
+    </form>
+  );
+}
+
+/** Width of the most-written theme's circle, as a share of the plot. */
+const BIGGEST_NODE = 15;
+
+/**
+ * The analytics page. Not a sheet: the map of themes is drawn straight onto
+ * the sky with nothing behind it, which is the whole point of it — so this is
+ * its own layer, and only the smaller readings sit on panels.
+ */
+function Analytics({ entries }) {
+  const themes = themeStats(entries);
+  const { nodes, links } = layoutGraph(themes);
+  const lists = themeLists(themes);
+  const balance = emotionalBalance(entries);
+  const trend = moodTrend(entries);
+
+  const busiest = Math.max(1, ...themes.map((theme) => theme.count));
+
+  return (
+    <div className="analytics">
+      <section className="graph" aria-label="Themes across your writing">
+        <div className="graph__plot">
+          {/* Drawn under the nodes and ignored by the pointer, so a link can
+              never take a hover that belongs to the theme on top of it. */}
+          <svg className="graph__links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+            {links.map((link) => (
+              <line
+                key={`${link.from.name}-${link.to.name}`}
+                x1={link.from.x * 100}
+                y1={link.from.y * 100}
+                x2={link.to.x * 100}
+                y2={link.to.y * 100}
+                vectorEffect="non-scaling-stroke"
+              />
+            ))}
+          </svg>
+
+          {nodes.map((node) => (
+            <span
+              key={node.name}
+              className="graph__node"
+              data-faded={node.faded || undefined}
+              style={{
+                left: `${node.x * 100}%`,
+                top: `${node.y * 100}%`,
+                /* Area, not diameter, tracks the count — a theme written twice
+                   as often should look twice as big, and a circle scaled on
+                   its diameter looks four times. BIGGEST_NODE is the share of
+                   the plot the most-written theme takes. */
+                '--node-size': `${Math.sqrt(node.count / busiest) * BIGGEST_NODE}%`,
+                '--node-tone': node.valence === null ? 0.5 : node.valence,
+              }}
+            >
+              <span className="graph__name">{node.name}</span>
+              <span className="visually-hidden">
+                {` — written ${node.count} ${node.count === 1 ? 'time' : 'times'}${
+                  node.faded ? ', not in the last week' : ''
+                }`}
+              </span>
+            </span>
+          ))}
+        </div>
+
+        {/* Bare, like the graph — the design keeps both off any panel. */}
+        <dl className="graph__key">
+          <div>
+            <dt className="graph__swatch" data-faded aria-hidden="true" />
+            <dd>Faded = no longer in use</dd>
+          </div>
+          <div>
+            <dt className="graph__swatch" aria-hidden="true" />
+            <dd>Size = how often a word appears</dd>
+          </div>
+        </dl>
+      </section>
+
+      {/* Under the map, as drawn: the two readings that are about the whole
+          corpus rather than about any one theme. */}
+      <div className="gauges">
+        <section className="reading">
+          <h2 className="reading__title">Emotional balance</h2>
+          {balance === null ? (
+            <p className="reading__empty">Nothing scored yet.</p>
+          ) : (
+            <>
+              <div
+                className="balance"
+                role="img"
+                aria-label={`Emotional balance sits at ${Math.round(balance * 100)} out of 100`}
+              >
+                <span className="balance__marker" style={{ left: `${balance * 100}%` }} />
+              </div>
+              <p className="balance__scale" aria-hidden="true">
+                <span>Low</span>
+                <span>Neutral</span>
+                <span>High</span>
+              </p>
+            </>
+          )}
+        </section>
+
+        <section className="reading">
+          <h2 className="reading__title">Mood trend</h2>
+          <div className="trend">
+            {trend.columns.map((column, i) => (
+              <div className="trend__day" key={`${column.day}-${i}`}>
+                <span className="trend__label" aria-hidden="true">
+                  {column.label}
+                </span>
+                <span className="trend__dots">
+                  {column.dots.map((dot) => (
+                    <span
+                      key={dot.id}
+                      className="trend__dot"
+                      style={{ '--node-tone': dot.valence === null ? 0.5 : dot.valence }}
+                    />
+                  ))}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      <div className="readings">
+        <ThemeList title="Recurring" themes={lists.recurring} />
+        <ThemeList title="Concerns" themes={lists.concerns} />
+        <ThemeList title="Expectations" themes={lists.expectations} />
+      </div>
+    </div>
+  );
+}
+
+function ThemeList({ title, themes }) {
+  if (themes.length === 0) return null;
+  return (
+    <section className="reading">
+      <h2 className="reading__title">{title}</h2>
+      <ul className="reading__list">
+        {themes.map((theme) => (
+          <li key={theme.name}>
+            <span>{theme.name}</span>
+            <span className="reading__count">{theme.count}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function ChartIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M4 19V5M4 19h16M7.5 15.5l3.5-4 3 2.5 4.5-6"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
@@ -1039,6 +1298,12 @@ const BEAR_X = 0.7095;
 const BEAR_GROUND_Y = 0.7119;
 const BEAR_WIDTH_SHARE = 0.12;
 
+/* The sprite sheet's shape. build-assets.mjs writes the authoritative values
+   to public/sprites/bear-resting.json when it cuts the sheet; these are that
+   file, inlined so the bear doesn't need a fetch to start moving. */
+const BEAR_FRAMES = 11;
+const BEAR_FRAME_MS = 200;
+
 function Bear({ stageRef, artRef }) {
   const rect = useArtRect(stageRef, artRef);
   const [reducedMotion, setReducedMotion] = useState(
@@ -1058,13 +1323,22 @@ function Bear({ stageRef, artRef }) {
   const left = rect.left + rect.width * BEAR_X - width / 2;
   const top = rect.top + rect.height * BEAR_GROUND_Y - width;
 
+  /* A sprite rather than a GIF, because the walk goes forward and then back
+     again rather than cutting from the last frame to the first, and that is
+     what animation-direction: alternate is. See home.css. */
   return (
-    <img
+    <span
       className="backdrop__bear"
-      style={{ left, top, width, height: width }}
-      src={reducedMotion ? '/sprites/bear-resting-static.png' : '/sprites/bear-resting.gif'}
-      alt=""
-      decoding="async"
+      aria-hidden="true"
+      data-still={reducedMotion || undefined}
+      style={{
+        left,
+        top,
+        width,
+        height: width,
+        '--bear-frames': BEAR_FRAMES,
+        '--bear-duration': `${BEAR_FRAMES * BEAR_FRAME_MS}ms`,
+      }}
     />
   );
 }

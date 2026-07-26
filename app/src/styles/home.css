@@ -155,11 +155,39 @@ body {
    off the rendered artwork rather than expressed here in CSS, because its
    containing block — .backdrop — spans the whole stage while the artwork
    itself overflows it by a different amount at each edge. */
+/* The bear ambles out and back rather than looping round, so the walk has no
+   cut in it — the last frame turns into the walk home instead of snapping to
+   the first. A GIF can only do that by carrying the reversed frames as extra
+   frames; animation-direction: alternate does it for nothing, which is why
+   this is a sprite sheet and not a GIF.
+
+   background-size makes the element one frame wide of a --bear-frames-wide
+   sheet, so background-position-x from 0% to 100% is first frame to last, and
+   steps(n, jump-none) lands on every one of them — n values inclusive of both
+   ends, where a plain steps(n) would drop one. */
 .backdrop__bear {
   position: absolute;
   display: block;
   image-rendering: pixelated;
   pointer-events: none;
+  background-image: url("/sprites/bear-resting-sheet.png");
+  background-repeat: no-repeat;
+  background-size: calc(var(--bear-frames) * 100%) 100%;
+  animation: bear-amble var(--bear-duration)
+    steps(var(--bear-frames), jump-none) infinite alternate;
+}
+
+@keyframes bear-amble {
+  from { background-position-x: 0%; }
+  to   { background-position-x: 100%; }
+}
+
+/* Reduced motion gets the still frame outright, rather than the global rule's
+   0.01ms duration freezing the sheet on whichever frame it lands on. */
+.backdrop__bear[data-still] {
+  background-image: url("/sprites/bear-resting-static.png");
+  background-size: 100% 100%;
+  animation: none;
 }
 
 /* ───────────────────────────────────────────────────────────
@@ -189,6 +217,15 @@ body {
      reference render. The bottom is the render's gap down to the prompt. */
   padding: var(--masthead-top) var(--gutter) var(--s5)
            calc(var(--gutter) + var(--s2));
+}
+
+.masthead__lead {
+  display: flex;
+  align-items: center;
+  gap: var(--s5);
+  min-width: 0;
+  flex-wrap: wrap;
+  row-gap: var(--s2);
 }
 
 .masthead__wordmark {
@@ -420,7 +457,7 @@ body {
 
    The sheet's own top is --masthead-top - --s4, which is why that comes back
    out of the sum. */
-.sheet {
+:root {
   --panel-top: calc(
     var(--masthead-h, 152px) - var(--masthead-top) + var(--s4) + var(--s2)
   );
@@ -443,6 +480,21 @@ body {
   visibility: hidden;
 }
 
+/* The mode toggle has nothing to do with these panels, so it goes with the
+   writing — and it goes entirely, rather than leaving its box behind for a
+   panel's content to start underneath. The wordmark stays: it is the app's
+   name, not the mode's. */
+.stage[data-sheet="help"] .mode,
+.stage[data-sheet="insights"] .mode {
+  display: none;
+}
+
+/* With the toggle gone the lead is just the wordmark, so the panel starts
+   directly under it rather than under a row sized for a control. */
+.stage[data-sheet="help"] .help {
+  padding-top: calc(var(--panel-top) - var(--s5));
+}
+
 /* ───────────────────────────────────────────────────────────
    Help panel
 
@@ -460,6 +512,13 @@ body {
   padding: var(--panel-top) var(--s5) var(--s5);
   color: #67301a;
   font-family: var(--font-read);
+}
+
+.help__title {
+  margin: 0 0 var(--s4);
+  font-weight: 400;
+  font-size: var(--t-title);
+  line-height: var(--lh-title);
 }
 
 .help__body {
@@ -579,10 +638,10 @@ body {
 }
 
 .cal__grid td {
-  /* Square cells, as drawn. The row height follows the column width, so the
-     grid holds its shape at any sheet width. */
-  aspect-ratio: 1;
-  padding: 0;
+  /* Near-square cells, as drawn. aspect-ratio is ignored on table cells, so
+     the height comes from the padding instead: 38px of day plus 12px of mark
+     plus this makes ~74px against a ~78px column. */
+  padding: var(--s3) 0;
   text-align: center;
   vertical-align: middle;
 }
@@ -642,15 +701,6 @@ body {
   background: rgba(250, 235, 226, 0.55);
 }
 
-.cal__caption {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--s2);
-  margin: var(--s6) 0 0;
-  font-size: var(--t-ui);
-}
-
 /* On desktop the clock moves to the centre of the page. The wordmark stays in
    the left gutter; the two outer columns are equal, so column 2 is centred on
    the viewport rather than on whatever is left over beside the wordmark.
@@ -689,7 +739,7 @@ body {
   /* Columns 1 and 3 are 1fr tracks. Without these the controls sit at the
      start of their track — the pill stretched across it, the round buttons
      stranded beside the clock instead of out at the right gutter. */
-  .mode {
+  .masthead__lead {
     justify-self: start;
   }
 
@@ -756,6 +806,10 @@ body {
 
 .sky__column {
   position: relative;   /* offsetParent for the fade measurement */
+  /* The writing's size, carried on the column so it can be measured whether or
+     not the field is out — useStageMetrics reads it to decide how far down the
+     sky the column may run, and the field only exists once writing starts. */
+  font-size: var(--t-sky);
   /* The measure grows with the type so the line length stays around 40
      characters rather than dropping to 25 as the text gets bigger. Still well
      inside the left 58% of the sky, which is the region the contrast audit
@@ -794,6 +848,12 @@ body {
    what has been said, and not the field the next thing is being said in. */
 .sky__log {
   margin-bottom: var(--s5);
+}
+
+/* Nothing written yet: the gap below the log would push the field down the
+   page, and the field has to land exactly where the resting line was. */
+.sky__log:empty {
+  margin-bottom: 0;
 }
 
 .sky__log:focus-visible {
@@ -853,6 +913,33 @@ body {
   margin-bottom: var(--s5);
 }
 
+/* The opening line as the way in. A button, but nothing about it says button:
+   it is the same line it always was, breathing slowly so it reads as waiting
+   rather than as decoration, and it gives its own place to the field when it
+   is pressed. The breath stops under prefers-reduced-motion with the rest of
+   the animation (§7.4), which leaves a still line that is still pressable. */
+.sky__start {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: text;   /* what pressing it gets you */
+  animation: prompt-breathe var(--d-breath) var(--ease-soft) infinite;
+}
+
+.sky__start[data-leaving] {
+  opacity: 0;
+  animation: none;
+  transition: opacity var(--d-gentle) var(--ease-out);
+}
+
+@keyframes prompt-breathe {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.45; }
+}
+
 /* Fade is presentational only — the text stays in state and the column
    scrolls back to it. Opacity, no movement (§7.1). */
 .sky__line[data-faded="true"] {
@@ -906,20 +993,24 @@ body {
   background: none;
   /* Sampled from the render — warmer than the writing it stands in front of. */
   color: #9f6b48;
-  font-size: var(--t-sky);
+  /* Sized off the resting line rather than the writing, so the mark that
+     replaces that line is the same weight on the page as it was. */
+  font-size: var(--t-prompt);
   cursor: pointer;
 }
 
-.composer__stroke {
+/* A typed ">" rather than a drawn one, so it carries the same face and the
+   same weight as the writing it stands in front of. */
+.composer__caret {
   display: block;
-  width: 2px;
-  height: 1.2em;
-  background: currentColor;
+  font-family: var(--font-read);
+  font-size: 0.85em;
+  line-height: 1;
 }
 
 .composer__mark svg {
-  width: 0.8em;
-  height: 0.8em;
+  width: 0.9em;
+  height: 0.9em;
 }
 
 /* Voice is the mode that is doing something, so it is the one that is stated. */
@@ -966,6 +1057,9 @@ body {
 /* Enter commits, so this is the pointer route rather than the only one. It is
    held back until there is something to send: with an empty draft the screen
    is the caret and nothing else, which is how the render draws it. */
+/* The same treatment as the start mark at the other end of the line: a glyph
+   in the sky, no disc, no fill. A --moss button was the only piece of UI
+   chrome left on this screen and it read as a control from another app. */
 .composer__send {
   flex: 0 0 auto;
   display: grid;
@@ -973,13 +1067,10 @@ body {
   width: var(--tap-min);
   height: var(--tap-min);
   padding: 0;
-  border-radius: var(--r-pill);
-  background: var(--moss);
-  /* --moss reads about 2:1 against the sky, so the button's edge alone doesn't
-     mark it out. The --paper glyph inside it carries 3.17:1 against the moss;
-     this hairline gives the boundary itself some help. */
-  border: 1px solid rgba(250, 235, 226, 0.35);
-  color: var(--paper);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: #9f6b48;
   cursor: pointer;
   transition:
     opacity var(--d-quick) var(--ease-out),
@@ -992,13 +1083,323 @@ body {
   cursor: default;
 }
 
+.composer__send:not(:disabled):hover {
+  color: #67301a;
+}
+
 .composer__send:not(:disabled):active {
-  transform: scale(0.96);
+  transform: scale(0.94);
 }
 
 .composer__send svg {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
+}
+
+/* ───────────────────────────────────────────────────────────
+   Analytics
+
+   Two different treatments on purpose. The map of themes is drawn straight
+   onto the sky — no panel, no scrim, nothing behind it — because it is the
+   page, and putting it in a box would make it another card among cards. The
+   readings beside and below it are cards, in the same frosted treatment as
+   the calendar and About us, because that is what they are.
+
+   Node colour runs on --node-tone, which is the average weather a theme is
+   written in: 0 is the heaviest, 1 the lightest. The two ends are the palette's
+   own --clay and --moss, so the map cannot drift away from the rest of the app.
+   ─────────────────────────────────────────────────────────── */
+
+.analytics {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  gap: var(--s5);
+  grid-template-columns: minmax(0, 1fr) minmax(200px, 17rem);
+  grid-template-areas:
+    "graph  lists"
+    "gauges lists";
+  align-content: start;
+  /* Measured from the stage's own top, unlike the sheet's panels — this layer
+     starts at the stage edge rather than at the sheet's. */
+  padding: calc(var(--masthead-h, 152px) + var(--s2)) var(--gutter) var(--s5);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  color: #5b3520;
+  font-family: var(--font-read);
+}
+
+/* ─── The map ─────────────────────────────────────────────── */
+
+.graph {
+  grid-area: graph;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  min-width: 0;
+  /* The canopy's left edge is at 64% of the artwork, and the map has no panel
+     under it to carry its words over the leaves. It stops short of that, the
+     same way the writing column does. */
+  max-width: min(100%, 60vw);
+}
+
+.graph__plot {
+  position: relative;
+  /* Wider than tall, as drawn, and bounded so the nodes have a box to sit in
+     whatever the window does. */
+  aspect-ratio: 3 / 2;
+  max-height: 58vh;
+}
+
+.graph__links {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.graph__links line {
+  stroke: rgba(122, 92, 62, 0.28);
+  stroke-width: 1;
+}
+
+.graph__node {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  /* --node-size is a share of the plot's width; the floor keeps a word that
+     was written once from shrinking to something unreadable. */
+  width: max(4rem, var(--node-size));
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  border-radius: 50%;
+  background: color-mix(in oklab, var(--moss) calc(var(--node-tone) * 100%), var(--clay));
+  text-align: center;
+  cursor: default;
+  transition:
+    scale var(--d-quick) var(--ease-out),
+    filter var(--d-quick) var(--ease-out);
+}
+
+/* "as though you can select it" — a tenth bigger, and lifted clear of the
+   nodes it overlaps so the growth doesn't happen underneath them. */
+.graph__node:hover,
+.graph__node:focus-visible {
+  scale: 1.1;
+  z-index: 2;
+  filter: saturate(1.15);
+}
+
+/* A theme nobody has written in a week. Still on the map — it is part of the
+   shape of the thing — but plainly out of use. */
+.graph__node[data-faded] {
+  background: rgba(198, 168, 148, 0.34);
+  color: rgba(91, 53, 32, 0.55);
+}
+
+/* Words stay whole. A long theme spills past its circle rather than being
+   broken across lines mid-word, which is the one thing that makes a map like
+   this unreadable. */
+.graph__name {
+  width: max-content;
+  max-width: 8rem;
+  font-size: clamp(0.6875rem, 0.62rem + 0.28vw, 0.875rem);
+  line-height: 1.2;
+  text-wrap: balance;
+}
+
+.graph__key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s3) var(--s5);
+  margin: 0;
+  font-size: var(--t-meta);
+}
+
+.graph__key > div {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.graph__key dd {
+  margin: 0;
+}
+
+.graph__swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--clay);
+}
+
+.graph__swatch[data-faded] {
+  background: rgba(198, 168, 148, 0.34);
+}
+
+/* ─── The readings ────────────────────────────────────────── */
+
+.readings {
+  grid-area: lists;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  min-width: 0;
+}
+
+/* The two whole-corpus readings, side by side under the map as drawn. */
+.gauges {
+  grid-area: gauges;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%), 1fr));
+  gap: var(--s4);
+  align-content: start;
+  max-width: min(100%, 60vw);
+}
+
+.reading {
+  padding: var(--s4) var(--s5) var(--s5);
+  border-radius: var(--r-lg);
+  border: 1px solid rgba(198, 168, 148, 0.45);
+  background: rgba(250, 235, 226, 0.38);
+  -webkit-backdrop-filter: blur(var(--bar-blur));
+  backdrop-filter: blur(var(--bar-blur));
+  box-shadow: var(--e2);
+}
+
+.reading__title {
+  margin: 0 0 var(--s3);
+  font-weight: 400;
+  font-size: var(--t-meta);
+  letter-spacing: var(--ls-meta);
+  text-transform: uppercase;
+}
+
+.reading__empty {
+  margin: 0;
+  font-size: var(--t-ui);
+  opacity: 0.7;
+}
+
+.reading__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--t-ui);
+}
+
+.reading__list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: var(--s2) 0;
+}
+
+.reading__list li + li {
+  border-top: 1px solid rgba(122, 92, 62, 0.18);
+}
+
+.reading__count {
+  font-size: var(--t-meta);
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+}
+
+.balance {
+  position: relative;
+  height: 18px;
+  border-radius: var(--r-pill);
+  background: linear-gradient(to right, var(--clay), #d9b98d, var(--moss));
+}
+
+.balance__marker {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 3px;
+  translate: -50% 0;
+  border-radius: 2px;
+  background: #5b3520;
+}
+
+.balance__scale {
+  display: flex;
+  justify-content: space-between;
+  margin: var(--s2) 0 0;
+  font-size: var(--t-meta);
+  opacity: 0.7;
+}
+
+.trend {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: var(--s2);
+}
+
+.trend__day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.trend__label {
+  font-size: var(--t-meta);
+  opacity: 0.7;
+}
+
+.trend__dots {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 10px;
+}
+
+.trend__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: color-mix(in oklab, var(--moss) calc(var(--node-tone) * 100%), var(--clay));
+}
+
+/* On a phone the map and the readings stack, and the map gives up its aspect
+   ratio rather than the readings giving up their width. */
+@media (max-width: 899.98px) {
+  .analytics {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "graph"
+      "gauges"
+      "lists";
+  }
+
+  /* Nothing is beside the map now, so it can have the full measure back — and
+     the artwork is anchored bottom on a narrow window, which puts the canopy
+     well below it. */
+  .graph,
+  .gauges {
+    max-width: 100%;
+  }
+
+  /* Thirteen circles in a phone's width collide whatever their size, so the
+     plot goes taller than wide and the circles come down with it — the map
+     stays a map rather than becoming a pile. */
+  .graph__plot {
+    aspect-ratio: 4 / 5;
+    max-height: none;
+  }
+
+  .graph__node {
+    width: max(2.6rem, var(--node-size));
+  }
+
+  .graph__name {
+    max-width: 5.5rem;
+    font-size: 0.625rem;
+  }
 }
 
 /* ───────────────────────────────────────────────────────────

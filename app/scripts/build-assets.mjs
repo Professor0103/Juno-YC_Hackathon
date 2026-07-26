@@ -19,6 +19,7 @@ const source = path.join(root, 'assets-source');
 const publicDir = path.join(root, 'public');
 const imageOut = path.join(publicDir, 'landscape');
 const fontOut = path.join(publicDir, 'fonts');
+const spriteOut = path.join(publicDir, 'sprites');
 
 const WIDTHS = [640, 1024, 1536, 2048];
 
@@ -185,5 +186,60 @@ async function buildImage() {
   console.log(JSON.stringify(report, null, 2));
 }
 
+/**
+ * The bear's frames, laid out left to right as one sheet.
+ *
+ * The bear ambles forward and then back again rather than cutting from the
+ * last frame to the first. A GIF cannot express that without carrying the
+ * reversed frames as extra frames, and sharp cannot author an animated GIF
+ * from scratch anyway (libvips wants a page-height it will only read off a
+ * multi-page input). CSS can: `animation-direction: alternate` over a
+ * steps() sprite is exactly a forward-and-back loop, at half the frames.
+ *
+ * The frame count goes into the JSON beside it so the CSS doesn't have to be
+ * kept in step with the sheet by hand.
+ */
+async function buildBear() {
+  await mkdir(spriteOut, { recursive: true });
+  const file = path.join(source, 'bear-resting.gif');
+  const meta = await sharp(file, { animated: true }).metadata();
+  const frames = meta.pages;
+  const size = meta.pageHeight;
+
+  // The animated read gives one tall strip; the sheet wants it lying down.
+  const strip = await sharp(file, { animated: true }).png().toBuffer();
+  const tiles = await Promise.all(
+    Array.from({ length: frames }, (_, i) =>
+      sharp(strip)
+        .extract({ left: 0, top: i * size, width: meta.width, height: size })
+        .png()
+        .toBuffer(),
+    ),
+  );
+
+  const sheet = path.join(spriteOut, 'bear-resting-sheet.png');
+  const info = await sharp({
+    create: {
+      width: meta.width * frames,
+      height: size,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    },
+  })
+    .composite(tiles.map((input, i) => ({ input, left: i * meta.width, top: 0 })))
+    .png({ compressionLevel: 9, palette: true })
+    .toFile(sheet);
+
+  await writeFile(
+    path.join(spriteOut, 'bear-resting.json'),
+    JSON.stringify({ frames, frame: meta.width, delay: meta.delay[0] ?? 200 }, null, 2),
+  );
+
+  console.log(
+    `sprite bear-resting-sheet.png  ${frames} frames  ${(info.size / 1024).toFixed(1)}KB`,
+  );
+}
+
 await buildFont();
 await buildImage();
+await buildBear();
