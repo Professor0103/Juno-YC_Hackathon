@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "npm run check:secrets && vite build",
+    "check:secrets": "node scripts/check-secrets.mjs src",
     "lint": "oxlint",
     "preview": "vite preview",
     "assets": "node scripts/build-assets.mjs",
@@ -14,6 +15,7 @@
     "probe:tree": "node scripts/probe-tree.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.110.8",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },

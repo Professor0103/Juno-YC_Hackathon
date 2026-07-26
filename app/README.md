@@ -7,8 +7,8 @@ judged on a real phone.
 Vite + React. The screen itself is simple enough for plain HTML, but the
 composite backdrop, the fade, and the keyboard handling all need the same
 measurements at the same time, and the seams this leaves — the archive, the
-artifact, the safety layer — attach to a component tree rather than to a
-script.
+session transcript, the safety layer — attach to a component tree rather than
+to a script.
 
 ## Running it
 
