@@ -1,6 +1,5 @@
-import { ensureSession, supabase, SUPABASE_ANON_KEY, SUPABASE_URL } from './supabase.js';
-
-const FUNCTIONS = `${SUPABASE_URL}/functions/v1`;
+import { post } from './beat.js';
+import { ensureSession, supabase } from './supabase.js';
 
 /**
  * Speech in, draft text out.
@@ -24,15 +23,7 @@ export async function transcribeRecording(blob) {
   if (uploadError) throw uploadError;
 
   try {
-    const res = await fetch(`${FUNCTIONS}/transcribe-voice-note`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-        apikey: SUPABASE_ANON_KEY,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ storagePath: path }),
-    });
+    const res = await post('transcribe-voice-note', { storagePath: path });
 
     if (!res.ok) {
       const detail = await res.json().catch(() => null);

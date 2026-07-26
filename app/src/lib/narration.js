@@ -1,6 +1,4 @@
-import { ensureSession, SUPABASE_ANON_KEY, SUPABASE_URL } from './supabase.js';
-
-const FUNCTIONS = `${SUPABASE_URL}/functions/v1`;
+import { post } from './beat.js';
 
 /**
  * The poem, read aloud.
@@ -10,18 +8,7 @@ const FUNCTIONS = `${SUPABASE_URL}/functions/v1`;
  * blob and the object URL made from it.
  */
 export async function narrate(text, { voiceId, signal } = {}) {
-  const session = await ensureSession();
-
-  const res = await fetch(`${FUNCTIONS}/narrate`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${session.access_token}`,
-      apikey: SUPABASE_ANON_KEY,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ text, voice_id: voiceId }),
-    signal,
-  });
+  const res = await post('narrate', { text, voice_id: voiceId }, signal);
 
   if (!res.ok) {
     const detail = await res.json().catch(() => null);

@@ -1,6 +1,6 @@
 # Product Specification Document (PSD) — FINAL
 
-**Project:** *Shift* (provisional name)
+**Project:** *Mango* (provisional name)
 **Event:** Juno/Anthropic consumer healthcare hackathon, Encode Hub London, late July 2026
 **Team:** ~2+ including a designer · **Build window:** ~36 hours
 **Supersedes:** `02-product-specification-document.md`
