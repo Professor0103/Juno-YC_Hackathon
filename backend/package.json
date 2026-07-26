@@ -1,0 +1,7 @@
+{
+  "name": "juno-yc_hackathon",
+  "private": true,
+  "devDependencies": {
+    "supabase": "^2.109.1"
+  }
+}
