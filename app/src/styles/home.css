@@ -397,11 +397,62 @@ body {
 }
 
 .sheetbutton:hover,
-.sheetbutton[aria-expanded="true"] {
+.sheetbutton[aria-expanded="true"],
+.sheetbutton[aria-pressed="true"] {
   background: rgba(250, 235, 226, 0.52);
 }
 
 .sheetbutton svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* ───────────────────────────────────────────────────────────
+   Music
+
+   Bottom left, down on the grass, and deliberately not in the masthead. The
+   calendar and the help sheet belong to the session; the music is furniture,
+   and putting all four in one cluster would make the app look like it has six
+   features instead of two.
+
+   Same frosted disc as the masthead controls, because they are still the same
+   kind of object — a small round thing you press — and inventing a second
+   treatment for them would be the more conspicuous choice.
+   ─────────────────────────────────────────────────────────── */
+
+.music {
+  position: absolute;
+  left: var(--gutter);
+  bottom: var(--s5);
+  z-index: 2;   /* above the sky, below a card that has been picked up */
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.music__button {
+  display: grid;
+  place-items: center;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  padding: 0;
+  border: 1px solid rgba(250, 235, 226, 0.30);
+  border-radius: 50%;
+  background: rgba(250, 235, 226, 0.32);
+  -webkit-backdrop-filter: blur(var(--bar-blur));
+  backdrop-filter: blur(var(--bar-blur));
+  /* The masthead's warm brown, for the same reason it is used there. */
+  color: #67301a;
+  cursor: pointer;
+  transition: background-color var(--d-quick) var(--ease-out);
+}
+
+.music__button:hover,
+.music__button[aria-pressed="true"] {
+  background: rgba(250, 235, 226, 0.52);
+}
+
+.music__button svg {
   width: 20px;
   height: 20px;
 }
@@ -1016,6 +1067,29 @@ body {
 /* Voice is the mode that is doing something, so it is the one that is stated. */
 .composer__mark[data-input="voice"] {
   color: #67301a;
+}
+
+/* Recording is the one state the writer must not be able to mistake for idle,
+   so it is the one that moves. */
+.composer__mark[data-status="recording"] {
+  animation: mic-pulse 1.6s var(--ease-soft) infinite;
+}
+
+.composer__mark:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+@keyframes mic-pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer__mark[data-status="recording"] {
+    animation: none;
+  }
 }
 
 .composer__input {
@@ -1642,6 +1716,50 @@ body {
   letter-spacing: var(--ls-meta);
   text-transform: uppercase;
   color: var(--ink);
+}
+
+/* Hearing the text is an offer, not the way in: "Respond" is still the only
+   full-width thing in the dock. This is a small quiet control under the
+   attribution, sized to a thumb and no larger. */
+.narration {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  margin: var(--s4) 0 0;
+  min-height: var(--tap-min);
+  padding: 0 var(--s4) 0 var(--s3);
+  border: 1px solid rgba(250, 235, 226, 0.18);
+  border-radius: var(--r-pill);
+  background: linear-gradient(to bottom, var(--bar-scrim-top), var(--bar-scrim-bottom));
+  -webkit-backdrop-filter: blur(var(--bar-blur));
+  backdrop-filter: blur(var(--bar-blur));
+  color: var(--paper);
+  cursor: pointer;
+  transition: transform var(--d-quick) var(--ease-out);
+}
+
+.narration:not(:disabled):active {
+  transform: scale(0.98);
+}
+
+.narration:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.narration svg,
+.narration__bounce {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+
+.narration__label {
+  font-family: var(--font-ui);
+  font-size: var(--t-meta);
+  line-height: var(--lh-ui);
+  letter-spacing: var(--ls-meta);
+  text-transform: uppercase;
 }
 
 /* ───────────────────────────────────────────────────────────

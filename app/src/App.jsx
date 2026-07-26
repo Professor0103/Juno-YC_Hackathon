@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { auditDaywalkerGlyphs, normaliseForDaywalker } from './lib/daywalker.js';
 import { CRISIS_HEADING, CRISIS_RESOURCES } from './lib/crisis.js';
 import {
@@ -10,6 +10,7 @@ import {
   makeEntry,
   seedEntries,
 } from './lib/entries.js';
+import { prewarm } from './lib/beat.js';
 import {
   emotionalBalance,
   layoutGraph,
@@ -17,11 +18,15 @@ import {
   themeLists,
   themeStats,
 } from './lib/insights.js';
+import { narrate } from './lib/narration.js';
 import { looksLikeCrisis } from './lib/prefilter.js';
 import { privacy } from './lib/privacy.js';
-import { deepen, loadOpeningText, prewarm, saveReflection } from './lib/reflection.js';
+import { deepen, loadOpeningText, saveReflection } from './lib/reflection.js';
 import { useArtRect } from './lib/useArtRect.js';
+import { useMusic } from './lib/useMusic.js';
+import { usePrefersReducedMotion } from './lib/usePrefersReducedMotion.js';
 import { useStageMetrics } from './lib/useStageMetrics.js';
+import { useVoiceRecorder } from './lib/useVoiceRecorder.js';
 
 /**
  * The Reflection session (PSD 3.1).
@@ -81,11 +86,19 @@ export default function App() {
   const [sheet, setSheet] = useState(null);
   const [entries, setEntries] = useState(() => seedEntries());
   const [cards, setCards] = useState([]);
-  const [input, setInput] = useState('text');
-  /* Whether the journal's opening line has been handed over to the field yet,
-     and whether it is in the middle of doing so. */
-  const [started, setStarted] = useState(false);
-  const [starting, setStarting] = useState(false);
+
+  /* Mango's spoken voice, reflection only. One reading at a time across the
+     poem and every turn's own button — starting a new one stops whichever was
+     already sounding, rather than layering over it. */
+  const [autoNarrate, setAutoNarrate] = useState(true);
+  const activeAudioRef = useRef(null);
+
+  const toggleAutoNarrate = () => {
+    setAutoNarrate((current) => {
+      if (current) activeAudioRef.current?.pause();
+      return !current;
+    });
+  };
 
   const stageRef = useRef(null);
   const artRef = useRef(null);
@@ -95,8 +108,10 @@ export default function App() {
 
   useStageMetrics({ stageRef, artRef, columnRef, mastheadRef });
 
+  const music = useMusic();
+
   useEffect(() => {
-    prewarm();
+    prewarm('chat', 'reflection-deepen');
     loadOpeningText()
       .then(setText)
       .catch((err) => console.error('[mango] could not load the opening text', err));
@@ -180,11 +195,11 @@ export default function App() {
 
   useEffect(() => {
     if (mode === 'journal') {
-      inputRef.current?.focus();
+      if (!interrupted || interruptedOutcome !== null) inputRef.current?.focus();
     } else if (stage === TALKING && !busy && !interrupted) {
       inputRef.current?.focus();
     }
-  }, [mode, stage, busy, interrupted]);
+  }, [mode, stage, busy, interrupted, interruptedOutcome]);
 
   const drain = useCallback(async (events, writing) => {
     setBusy(true);
@@ -218,6 +233,28 @@ export default function App() {
 
   const handleChange = (event) => {
     setDraft(normaliseForDaywalker(event.target.value));
+  };
+
+  /* A transcript is a draft. It lands in the composer next to whatever was
+     already typed and waits there — speaking a message and sending it are two
+     decisions, and only the writer makes the second one. */
+  const handleTranscript = useCallback((spoken) => {
+    setDraft((current) => normaliseForDaywalker(current ? `${current} ${spoken}` : spoken));
+    inputRef.current?.focus();
+  }, []);
+
+  const handleVoiceError = useCallback((err) => {
+    console.error('[mango] voice input failed', err);
+  }, []);
+
+  const voice = useVoiceRecorder({
+    onTranscript: handleTranscript,
+    onError: handleVoiceError,
+  });
+
+  const toggleVoice = () => {
+    if (voice.status === 'recording') voice.stop();
+    else if (voice.status === 'idle') voice.start();
   };
 
   /**
@@ -280,6 +317,17 @@ export default function App() {
   };
 
   const keepInterrupted = async () => {
+    // In the journal there is nothing on a server to write to: an entry is a line
+    // in the log and a row in local memory, so keeping it means putting back what
+    // was held out. The companion is not called on it — the turn that would have
+    // asked a question is the turn that was interrupted.
+    if (mode === 'journal') {
+      setLines((current) => [...current, line('mine', interrupted)]);
+      setEntries((current) => [...current, makeEntry({ text: interrupted, mode })]);
+      setInterruptedOutcome('saved');
+      return;
+    }
+
     try {
       const last = turns[turns.length - 1];
       const already = last?.role === 'user' && last.content === interrupted;
@@ -297,6 +345,15 @@ export default function App() {
   const discardInterrupted = () => {
     setDraft('');
     setInterruptedOutcome('discarded');
+  };
+
+  /** Switching modes drops anything the other mode was mid-way through. */
+  const changeMode = (next) => {
+    if (next === mode) return;
+    setMode(next);
+    setDraft('');
+    setInterrupted(null);
+    setInterruptedOutcome(null);
   };
 
   /* Whether the field is out, in whichever mode. Journal has one switch of its
@@ -442,19 +499,23 @@ export default function App() {
       {sheet === 'insights' && <Analytics entries={entries} />}
 
       <header className="masthead" ref={mastheadRef}>
-        {/* The wordmark holds the far left, as it always did; the toggle sits
-            beside it, which is still the position the render puts it in. */}
-        <div className="masthead__lead">
-          <h1 className="masthead__wordmark" data-face="daywalker">
-            mango
-          </h1>
-          <ModeToggle mode={mode} onChange={setMode} />
-        </div>
+        <ModeToggle mode={mode} onChange={changeMode} />
         <Clock />
         <div className="masthead__tools">
           <SheetButton label="Analytics" panel="insights" open={sheet} onToggle={setSheet}>
             <ChartIcon />
           </SheetButton>
+          {mode === 'reflection' && (
+            <button
+              type="button"
+              className="sheetbutton"
+              aria-pressed={autoNarrate}
+              aria-label={autoNarrate ? 'Turn off spoken responses' : 'Turn on spoken responses'}
+              onClick={toggleAutoNarrate}
+            >
+              {autoNarrate ? <SpeakerIcon /> : <SpeakerMuteIcon />}
+            </button>
+          )}
           <SheetButton
             label="Calendar"
             panel="calendar"
@@ -499,6 +560,7 @@ export default function App() {
                       {text.author}
                       {text.year_published ? `, ${text.year_published}` : ''}
                     </p>
+                    <NarrationButton text={text.body} activeAudioRef={activeAudioRef} />
                   </div>
                 )}
 
@@ -512,9 +574,14 @@ export default function App() {
                       {turn.content}
                     </p>
                   ) : (
-                    <p key={index} className="sky__line sky__line--mango">
-                      {turn.content}
-                    </p>
+                    <Fragment key={index}>
+                      <p className="sky__line sky__line--mango">{turn.content}</p>
+                      <NarrationButton
+                        text={turn.content}
+                        autoPlay={autoNarrate && index === turns.length - 1}
+                        activeAudioRef={activeAudioRef}
+                      />
+                    </Fragment>
                   ),
                 )}
 
@@ -531,31 +598,39 @@ export default function App() {
             )}
           </div>
 
-          {/* One slot, whichever mode. The field and the line that rests in
-              its place are the same piece of the layout, which is what makes
-              the writing start exactly where the line was. */}
-          {mode === 'reflection' && interrupted ? (
+          {mode === 'journal' ? (
+            <Composer
+              draft={draft}
+              inputRef={inputRef}
+              voiceStatus={voice.status}
+              onToggleVoice={toggleVoice}
+              onChange={handleChange}
+              onKeyDown={handleKeyDown}
+              onSubmit={submit}
+              canSend={canSend}
+              autoFocus
+            />
+          ) : interrupted ? (
             <SupportCard
               outcome={interruptedOutcome}
               onKeep={keepInterrupted}
               onDiscard={discardInterrupted}
             />
-          ) : mode === 'reflection' && stage === KEPT ? (
-            <p className="note">{privacy.kept}</p>
-          ) : writing ? (
+          ) : stage === TALKING ? (
             <>
               <Composer
                 draft={draft}
                 inputRef={inputRef}
-                input={input}
-                onInputChange={setInput}
+                voiceStatus={voice.status}
+                onToggleVoice={toggleVoice}
                 onChange={handleChange}
                 onKeyDown={handleKeyDown}
                 onSubmit={submit}
                 canSend={canSend}
+                placeholder={turns.length === 0 ? 'Write' : 'Go on'}
               />
 
-              {mode === 'reflection' && canLeave && (
+              {canLeave && (
                 <button className="leave" type="button" onClick={keep} disabled={busy}>
                   I&rsquo;ll leave it here
                 </button>
@@ -574,6 +649,26 @@ export default function App() {
           )}
         </div>
       </main>
+
+      {/* Bottom left, on the grass rather than in the masthead: the music is not
+          one of the session's controls and should not sit among them. */}
+      <div className="music">
+        <button className="music__button" type="button" onClick={music.shuffle}>
+          <span className="visually-hidden">Shuffle to another track</span>
+          <ShuffleIcon />
+        </button>
+        <button
+          className="music__button"
+          type="button"
+          aria-pressed={music.playing}
+          onClick={music.toggle}
+        >
+          <span className="visually-hidden">
+            {music.playing ? 'Turn the music off' : 'Turn the music on'}
+          </span>
+          <NoteIcon playing={music.playing} />
+        </button>
+      </div>
 
       {cards.map((card) => {
         const found = entriesOn(entries, card.day, card.mode);
@@ -612,11 +707,83 @@ function SheetButton({ label, panel, open, onToggle, children }) {
   );
 }
 
+/* The conventional shuffle glyph: two paths crossing, each ending in an
+   arrowhead. Drawn at the same 24-unit box and 1.6 stroke as the masthead icons
+   so the whole set looks like one hand made it. */
+function ShuffleIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <g
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M3 17.5h2.1c1.3 0 2.6-.66 3.35-1.75l6.1-8.5C15.3 6.16 16.6 5.5 17.9 5.5H21" />
+        <path d="m17.9 2.6 3 2.9-3 2.9" />
+        <path d="M3 6.5h2.1c1.3 0 2.6.66 3.35 1.75l.6.85" />
+        <path d="M21 17.5h-3.1c-1.3 0-2.6-.66-3.35-1.75l-.6-.85" />
+        <path d="m17.9 14.6 3 2.9-3 2.9" />
+      </g>
+    </svg>
+  );
+}
+
+/* A beamed pair of quavers — two heads, two stems, one beam. The slash is the
+   off state, so the same glyph carries the answer to "is the music on" rather
+   than needing a second icon beside it. */
+function NoteIcon({ playing }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M9.4 17.6V5.4l9-2v11.4"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <ellipse cx="7.1" cy="17.7" rx="2.4" ry="1.9" fill="currentColor" />
+      <ellipse cx="16.1" cy="15.7" rx="2.4" ry="1.9" fill="currentColor" />
+      {!playing && (
+        <path
+          d="M3.6 20.4 20.4 3.6"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+        />
+      )}
+    </svg>
+  );
+}
+
 function CalendarIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <rect x="3.5" y="5.5" width="17" height="15" rx="2.5" stroke="currentColor" strokeWidth="1.6" />
       <path d="M3.5 10h17M8 3.5v4M16 3.5v4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function SpeakerIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M4 9.5v5h4l5 4v-13l-5 4z" fill="currentColor" />
+      <path
+        d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function SpeakerMuteIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M4 9.5v5h4l5 4v-13l-5 4z" fill="currentColor" />
+      <path d="M16 9.5l4.5 5M20.5 9.5 16 14.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
     </svg>
   );
 }
@@ -803,6 +970,9 @@ function Calendar({ markedDays, mode, onOpenDay }) {
         </tbody>
       </table>
 
+      <p className="cal__caption">
+        <span className="cal__dot" aria-hidden="true" /> {MODE_LABEL[mode]}
+      </p>
     </div>
   );
 }
@@ -991,36 +1161,22 @@ function ModeToggle({ mode, onChange }) {
 function Composer({
   draft,
   inputRef,
-  input,
-  onInputChange,
+  voiceStatus,
+  onToggleVoice,
   onChange,
   onKeyDown,
   onSubmit,
   canSend,
+  placeholder,
   autoFocus = false,
 }) {
   return (
     <form className="composer" onSubmit={onSubmit}>
-      {/* Where the writing starts. A stroke standing in the sky in text mode, a
-          microphone in voice mode — the mark itself is the switch between the
+      {/* Where the writing starts. A stroke standing in the sky at rest, a
+          microphone while recording — the mark itself is the switch between the
           two (§10.4: text is always available, so this changes what is
           offered, never what is possible). */}
-      <button
-        type="button"
-        className="composer__mark"
-        data-input={input}
-        aria-pressed={input === 'voice'}
-        onClick={() => onInputChange(input === 'voice' ? 'text' : 'voice')}
-      >
-        <span className="visually-hidden">Voice input</span>
-        {input === 'voice' ? (
-          <MicIcon />
-        ) : (
-          <span className="composer__caret" aria-hidden="true">
-            &gt;
-          </span>
-        )}
-      </button>
+      <VoiceButton status={voiceStatus} onClick={onToggleVoice} />
 
       <label className="visually-hidden" htmlFor="composer">
         Write
@@ -1033,6 +1189,7 @@ function Composer({
         onChange={onChange}
         onKeyDown={onKeyDown}
         rows={1}
+        placeholder={placeholder}
         autoComplete="off"
         spellCheck="true"
         autoFocus={autoFocus}
@@ -1306,16 +1463,7 @@ const BEAR_FRAME_MS = 200;
 
 function Bear({ stageRef, artRef }) {
   const rect = useArtRect(stageRef, artRef);
-  const [reducedMotion, setReducedMotion] = useState(
-    () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
-  );
-
-  useEffect(() => {
-    const query = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const onChange = () => setReducedMotion(query.matches);
-    query.addEventListener('change', onChange);
-    return () => query.removeEventListener('change', onChange);
-  }, []);
+  const reducedMotion = usePrefersReducedMotion();
 
   if (!rect) return null;
 
@@ -1379,6 +1527,163 @@ function SendIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+    </svg>
+  );
+}
+
+/**
+ * The mic, in the composer, in both modes. Tap to speak, tap again to stop —
+ * the same button, because starting and stopping one recording is one control.
+ * While the recording is being read it is disabled rather than hidden: the
+ * composer must not move under a thumb that is already there.
+ */
+function VoiceButton({ status, onClick }) {
+  const recording = status === 'recording';
+  const label = recording
+    ? 'Stop recording'
+    : status === 'transcribing'
+      ? 'Reading what you said'
+      : 'Speak instead of typing';
+
+  return (
+    <button
+      type="button"
+      className="composer__mark"
+      data-input={recording ? 'voice' : 'text'}
+      data-status={status}
+      aria-pressed={recording}
+      aria-label={label}
+      disabled={status === 'transcribing'}
+      onClick={onClick}
+    >
+      {status === 'idle' ? <span className="composer__stroke" /> : <MicIcon />}
+    </button>
+  );
+}
+
+/* One loop of icons8-play.gif. The bounce is acknowledgement of the tap, and it
+   has to be allowed to finish before the icon changes under it. */
+const BOUNCE_MS = 1120;
+
+/**
+ * The poem, read aloud.
+ *
+ * Audio is fetched once and kept for the length of the session, so pausing and
+ * starting again is instant and costs nothing — the second play is the same
+ * bytes, not a second synthesis.
+ */
+function NarrationButton({ text, autoPlay = false, activeAudioRef }) {
+  const [playing, setPlaying] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [bouncing, setBouncing] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  const reducedMotion = usePrefersReducedMotion();
+
+  const audioRef = useRef(null);
+  const urlRef = useRef(null);
+  const bounceTimer = useRef(null);
+
+  useEffect(
+    () => () => {
+      audioRef.current?.pause();
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+      window.clearTimeout(bounceTimer.current);
+    },
+    [],
+  );
+
+  const play = async () => {
+    if (!reducedMotion) {
+      setBouncing(true);
+      window.clearTimeout(bounceTimer.current);
+      bounceTimer.current = window.setTimeout(() => setBouncing(false), BOUNCE_MS);
+    }
+
+    try {
+      if (!audioRef.current) {
+        setLoading(true);
+        const blob = await narrate(text);
+        urlRef.current = URL.createObjectURL(blob);
+
+        const audio = new Audio(urlRef.current);
+        audio.addEventListener('play', () => setPlaying(true));
+        audio.addEventListener('pause', () => setPlaying(false));
+        audio.addEventListener('ended', () => setPlaying(false));
+        audioRef.current = audio;
+      }
+
+      // One voice at a time: a reading that starts stops whichever one — the
+      // poem, or another turn — was already sounding.
+      if (activeAudioRef && activeAudioRef.current !== audioRef.current) {
+        activeAudioRef.current?.pause();
+      }
+      if (activeAudioRef) activeAudioRef.current = audioRef.current;
+
+      await audioRef.current.play();
+      setFailed(false);
+    } catch (err) {
+      // Pausing while play() is still settling rejects it. That is the writer
+      // stopping the reading, not the reading failing.
+      if (err.name === 'AbortError') return;
+      console.error('[mango] could not narrate the text', err);
+      setFailed(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /* Mount-only: fires once, for the turn that just arrived, and never again
+     on later re-renders — a turn that arrived while muted stays silent even
+     if the user un-mutes afterwards. */
+  useEffect(() => {
+    if (autoPlay) play();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const onClick = () => {
+    if (playing) audioRef.current?.pause();
+    else play();
+  };
+
+  const showBounce = bouncing && !reducedMotion;
+
+  return (
+    <button
+      type="button"
+      className="narration"
+      data-state={playing ? 'playing' : 'idle'}
+      aria-label={playing ? 'Pause the reading' : 'Listen to this'}
+      disabled={loading && !audioRef.current}
+      onClick={onClick}
+    >
+      {playing ? (
+        <PauseIcon />
+      ) : showBounce ? (
+        <img className="narration__bounce" src="/sprites/icons8-play.gif" alt="" />
+      ) : (
+        <PlayIcon />
+      )}
+      <span className="narration__label">
+        {failed ? 'Could not read it' : playing ? 'Pause' : 'Listen'}
+      </span>
+    </button>
+  );
+}
+
+function PlayIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M8 5.5v13l11-6.5z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function PauseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="7" y="5" width="3.5" height="14" rx="1" fill="currentColor" />
+      <rect x="13.5" y="5" width="3.5" height="14" rx="1" fill="currentColor" />
     </svg>
   );
 }

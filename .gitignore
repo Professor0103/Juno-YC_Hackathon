@@ -11,3 +11,16 @@ node_modules/
 
 ### Local specs ###
 supabase-story-narrator-spec.md
+
+### Onboarding branch local assets ###
+Documents/
+frames/
+images/
+tools/
+seed-animation.html
+
+### Superseded by app/src/Onboarding.jsx ###
+onboarding.html
+
+### Local product-spec docs ###
+Document/

@@ -49,13 +49,6 @@ create policy "entries are private to their author"
   on public.entries for all to authenticated
   using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
--- Policies decide which rows a role may touch; grants decide whether it may reach
--- the table at all. New entities in `public` are no longer auto-exposed to the Data
--- API roles, so without these the policies above are unreachable and every query
--- returns "permission denied for table entries" — which looks identical to correct
--- isolation when you test it from the other user's side.
---
--- `authenticated` only. Anonymous sign-in still issues an authenticated JWT, so
--- nothing in this product needs the `anon` role to read anything.
+
 grant select on public.texts to authenticated;
 grant select, insert, update, delete on public.entries to authenticated;
