@@ -9,10 +9,11 @@ import {
   makeEntry,
   seedEntries,
 } from './lib/entries.js';
-import { composeFallbackQuestion } from './lib/fallbacks.js';
+import { prewarm } from './lib/beat.js';
+import { converse } from './lib/companion.js';
 import { looksLikeCrisis } from './lib/prefilter.js';
 import { privacy } from './lib/privacy.js';
-import { deepen, loadOpeningText, prewarm, saveReflection } from './lib/reflection.js';
+import { deepen, loadOpeningText, saveReflection } from './lib/reflection.js';
 import { useArtRect } from './lib/useArtRect.js';
 import { useStageMetrics } from './lib/useStageMetrics.js';
 
@@ -81,7 +82,7 @@ export default function App() {
   useStageMetrics({ stageRef, artRef, columnRef, mastheadRef });
 
   useEffect(() => {
-    prewarm();
+    prewarm('chat', 'reflection-deepen');
     loadOpeningText()
       .then(setText)
       .catch((err) => console.error('[mango] could not load the opening text', err));
@@ -164,11 +165,11 @@ export default function App() {
 
   useEffect(() => {
     if (mode === 'journal') {
-      inputRef.current?.focus();
+      if (!interrupted || interruptedOutcome !== null) inputRef.current?.focus();
     } else if (stage === TALKING && !busy && !interrupted) {
       inputRef.current?.focus();
     }
-  }, [mode, stage, busy, interrupted]);
+  }, [mode, stage, busy, interrupted, interruptedOutcome]);
 
   const drain = useCallback(async (events, writing) => {
     setBusy(true);
@@ -204,22 +205,78 @@ export default function App() {
     setDraft(normaliseForDaywalker(event.target.value));
   };
 
+  /**
+   * The journal conversation, as the companion sees it. Derived from the drawn
+   * lines rather than held separately, so there is one source of truth for what
+   * was said and no way for the screen and the transcript to disagree. The
+   * opening line is the app talking to itself and is not a turn.
+   */
+  const journalTurns = lines
+    .filter((entry) => entry.who !== 'opening' && entry.text.trim())
+    .map((entry) => ({
+      role: entry.who === 'mine' ? 'user' : 'assistant',
+      content: entry.text,
+    }));
+
   const submitJournal = async (event) => {
     event.preventDefault();
     const written = draft.trim();
     if (!written || waiting) return;
 
-    const mine = line('mine', written);
+    // The deterministic pre-filter (PSD 3.6) now runs here too. It was not needed
+    // while the journal answered itself locally; the companion changed that, and a
+    // surface that reaches a model gets both layers of screening, not one.
+    if (looksLikeCrisis(written)) {
+      setInterruptedOutcome(null);
+      setInterrupted(written);
+      return;
+    }
+
     setDraft('');
-    setLines((current) => [...current, mine]);
-    setEntries((current) => [...current, makeEntry({ text: written, mode })]);
+
+    const mine = line('mine', written);
+    const entry = makeEntry({ text: written, mode });
+    const reply = line('mango', '');
+
+    // The reply line is placed empty and filled as tokens land, so the answer
+    // grows in the place it will finally sit rather than appearing all at once
+    // somewhere else. Empty lines are not drawn; the caret stands in until the
+    // first token.
+    setLines((current) => [...current, mine, reply]);
+    setEntries((current) => [...current, entry]);
     setWaiting(true);
 
+    const transcript = [...journalTurns, { role: 'user', content: written }];
+    let accumulated = '';
+
     try {
-      const question = composeFallbackQuestion(written);
-      setLines((current) => [...current, line('mango', question)]);
+      for await (const frame of converse({ turns: transcript })) {
+        if (frame.type === 'safety') {
+          // Everything drawn on this turn goes, and their writing is held out of
+          // the log until they say what should happen to it — the same bargain
+          // the session makes, for the same reason.
+          setLines((current) => current.filter((l) => l.id !== mine.id && l.id !== reply.id));
+          setEntries((current) => current.filter((e) => e.id !== entry.id));
+          setInterruptedOutcome(null);
+          setInterrupted(written);
+          return;
+        }
+        if (frame.type === 'fallback') {
+          accumulated = '';
+          setLines((current) => current.map((l) => (l.id === reply.id ? { ...l, text: '' } : l)));
+          continue;
+        }
+        accumulated += frame.text;
+        setLines((current) =>
+          current.map((l) => (l.id === reply.id ? { ...l, text: accumulated } : l)),
+        );
+      }
     } finally {
       setWaiting(false);
+      // A turn that produced nothing leaves no blank line behind.
+      if (!accumulated.trim()) {
+        setLines((current) => current.filter((l) => l.id !== reply.id));
+      }
     }
   };
 
@@ -267,6 +324,17 @@ export default function App() {
   };
 
   const keepInterrupted = async () => {
+    // In the journal there is nothing on a server to write to: an entry is a line
+    // in the log and a row in local memory, so keeping it means putting back what
+    // was held out. The companion is not called on it — the turn that would have
+    // asked a question is the turn that was interrupted.
+    if (mode === 'journal') {
+      setLines((current) => [...current, line('mine', interrupted)]);
+      setEntries((current) => [...current, makeEntry({ text: interrupted, mode })]);
+      setInterruptedOutcome('saved');
+      return;
+    }
+
     try {
       const last = turns[turns.length - 1];
       const already = last?.role === 'user' && last.content === interrupted;
@@ -286,8 +354,22 @@ export default function App() {
     setInterruptedOutcome('discarded');
   };
 
+  /** Switching modes drops anything the other mode was mid-way through. */
+  const changeMode = (next) => {
+    if (next === mode) return;
+    setMode(next);
+    setDraft('');
+    setInterrupted(null);
+    setInterruptedOutcome(null);
+  };
+
   const canSend =
     draft.trim().length > 0 && (mode === 'journal' ? !waiting : !busy);
+
+  /* The caret stands in for the companion until its first token lands; after that
+     the reply line itself is the thing being drawn. */
+  const waitingOnCompanion =
+    mode === 'journal' && waiting && !lines[lines.length - 1]?.text;
 
   const waitingOnText =
     mode === 'reflection' &&
@@ -366,7 +448,7 @@ export default function App() {
       </div>
 
       <header className="masthead" ref={mastheadRef}>
-        <ModeToggle mode={mode} onChange={setMode} />
+        <ModeToggle mode={mode} onChange={changeMode} />
         <Clock />
         <div className="masthead__tools">
           <SheetButton
@@ -398,16 +480,18 @@ export default function App() {
           >
             {mode === 'journal' ? (
               <>
-                {lines.map((entry) => (
-                  <p
-                    key={entry.id}
-                    className={`sky__line sky__line--${entry.who === 'opening' ? 'prompt' : entry.who}`}
-                    data-face={entry.who === 'mine' ? 'daywalker' : 'newsreader'}
-                  >
-                    {entry.text}
-                  </p>
-                ))}
-                {waiting && (
+                {lines
+                  .filter((entry) => entry.text)
+                  .map((entry) => (
+                    <p
+                      key={entry.id}
+                      className={`sky__line sky__line--${entry.who === 'opening' ? 'prompt' : entry.who}`}
+                      data-face={entry.who === 'mine' ? 'daywalker' : 'newsreader'}
+                    >
+                      {entry.text}
+                    </p>
+                  ))}
+                {waitingOnCompanion && (
                   <p className="sky__line sky__line--mango" aria-label="Mango is writing">
                     <span className="sky__waiting" aria-hidden="true">
                       |
@@ -457,38 +541,54 @@ export default function App() {
           </div>
 
           {mode === 'journal' ? (
-            <form className="composer" onSubmit={submit}>
-              <button
-                type="button"
-                className="composer__mark"
-                data-input={input}
-                aria-pressed={input === 'voice'}
-                onClick={() => setInput(input === 'voice' ? 'text' : 'voice')}
-              >
-                <span className="visually-hidden">Voice input</span>
-                {input === 'voice' ? <MicIcon /> : <span className="composer__stroke" />}
-              </button>
+            <>
+              {interrupted && (
+                <SupportCard
+                  outcome={interruptedOutcome}
+                  onKeep={keepInterrupted}
+                  onDiscard={discardInterrupted}
+                />
+              )}
 
-              <label className="visually-hidden" htmlFor="composer">
-                Write
-              </label>
-              <textarea
-                id="composer"
-                className="composer__input"
-                ref={inputRef}
-                value={draft}
-                onChange={handleChange}
-                onKeyDown={handleKeyDown}
-                rows={1}
-                autoComplete="off"
-                spellCheck="true"
-                autoFocus
-              />
-              <button className="composer__send" type="submit" disabled={!canSend}>
-                <span className="visually-hidden">Send</span>
-                <SendIcon />
-              </button>
-            </form>
+              {/* The journal is not a session that can be interrupted and left
+                  there — it is where this person writes. So the composer comes
+                  back once they have said what should happen to the held line,
+                  with the resources still on screen above it. */}
+              {(!interrupted || interruptedOutcome !== null) && (
+                <form className="composer" onSubmit={submit}>
+                  <button
+                    type="button"
+                    className="composer__mark"
+                    data-input={input}
+                    aria-pressed={input === 'voice'}
+                    onClick={() => setInput(input === 'voice' ? 'text' : 'voice')}
+                  >
+                    <span className="visually-hidden">Voice input</span>
+                    {input === 'voice' ? <MicIcon /> : <span className="composer__stroke" />}
+                  </button>
+
+                  <label className="visually-hidden" htmlFor="composer">
+                    Write
+                  </label>
+                  <textarea
+                    id="composer"
+                    className="composer__input"
+                    ref={inputRef}
+                    value={draft}
+                    onChange={handleChange}
+                    onKeyDown={handleKeyDown}
+                    rows={1}
+                    autoComplete="off"
+                    spellCheck="true"
+                    autoFocus
+                  />
+                  <button className="composer__send" type="submit" disabled={!canSend}>
+                    <span className="visually-hidden">Send</span>
+                    <SendIcon />
+                  </button>
+                </form>
+              )}
+            </>
           ) : interrupted ? (
             <SupportCard
               outcome={interruptedOutcome}
