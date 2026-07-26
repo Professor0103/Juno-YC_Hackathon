@@ -1207,6 +1207,247 @@ body {
 }
 
 /* ───────────────────────────────────────────────────────────
+   The served text — beat 1
+
+   The largest thing on the opening screen, and on screen before anything to
+   write in exists (PSD success criterion 2, Risk 1). Set in --font-read, not
+   the user's hand: at a glance you can see this was given to you.
+   ─────────────────────────────────────────────────────────── */
+
+.served {
+  margin: 0 0 var(--s6);
+}
+
+.served__body {
+  margin: 0;
+  font-family: var(--font-read);
+  font-weight: 400;
+  font-size: var(--t-sky-open);
+  line-height: var(--lh-title);
+  color: var(--ink);
+  /* The poem's own line breaks are the poem. */
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* Attribution, not a byline: it marks the text as curated rather than prompted.
+   Full-strength --ink because at this size anything dimmer drops under 4.5:1 on
+   the sky, so the hierarchy comes from size and letter-spacing instead. */
+.served__credit {
+  margin: var(--s4) 0 0;
+  font-family: var(--font-ui);
+  font-size: var(--t-meta);
+  line-height: var(--lh-ui);
+  letter-spacing: var(--ls-meta);
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+/* ───────────────────────────────────────────────────────────
+   Dock offers — "Respond"
+
+   Same material as the composer, because they occupy the same place and stand
+   in for it. Full width so the session's single next step is unmissable to a
+   thumb, and there is never more than one of them on screen (PSD Risk 2).
+   ─────────────────────────────────────────────────────────── */
+
+.offer,
+.note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: var(--max-read);
+  margin-inline: auto;
+  min-height: var(--tap-min);
+  padding: var(--s3) var(--s5);
+  border-radius: var(--r-pill);
+  background: linear-gradient(to bottom, var(--bar-scrim-top), var(--bar-scrim-bottom));
+  -webkit-backdrop-filter: blur(var(--bar-blur));
+  backdrop-filter: blur(var(--bar-blur));
+  border: 1px solid rgba(250, 235, 226, 0.18);
+  color: var(--paper);
+  box-shadow: var(--e2);
+}
+
+.offer {
+  font-family: var(--font-ui);
+  font-size: var(--t-ui);
+  font-weight: 500;
+  letter-spacing: var(--ls-meta);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform var(--d-quick) var(--ease-out);
+}
+
+.offer:disabled {
+  color: rgba(250, 235, 226, 0.55);
+  cursor: default;
+}
+
+.offer:not(:disabled):active {
+  transform: scale(0.99);
+}
+
+/* Ending the session. It sits under the composer for the whole session, so unlike
+   an .offer it is deliberately not made of the same material as the bar above it —
+   no scrim, no border, no fill. It is legible and reachable and nothing more,
+   because a second pill in the dock would read as the step the app wants next, and
+   the app does not want a next step. Full-width tap target, hairline underline so
+   it is not a button identifiable by colour alone (§17). */
+.leave {
+  display: block;
+  width: 100%;
+  max-width: var(--max-read);
+  margin: var(--s2) auto 0;
+  min-height: var(--tap-min);
+  padding: var(--s2) var(--s5);
+  border: 0;
+  background: none;
+  font-family: var(--font-ui);
+  font-size: var(--t-meta);
+  line-height: var(--lh-ui);
+  letter-spacing: var(--ls-meta);
+  color: rgba(250, 235, 226, 0.72);
+  text-align: center;
+  text-decoration: underline;
+  text-decoration-color: rgba(250, 235, 226, 0.3);
+  text-underline-offset: 0.35em;
+  cursor: pointer;
+  transition: color var(--d-quick) var(--ease-out);
+}
+
+.leave:hover:not(:disabled),
+.leave:focus-visible {
+  color: var(--paper);
+  text-decoration-color: currentColor;
+}
+
+.leave:disabled {
+  color: rgba(250, 235, 226, 0.35);
+  cursor: default;
+}
+
+/* The privacy line at the end of the session. Same material as an offer, but it is
+   a statement, not a target — no uppercase, no tracking, and it wraps. */
+.note {
+  margin-block: 0;
+  font-family: var(--font-ui);
+  font-size: var(--t-meta);
+  line-height: var(--lh-ui);
+  text-align: center;
+  text-wrap: balance;
+}
+
+/* ───────────────────────────────────────────────────────────
+   Support card (PSD 3.6)
+
+   Deliberately a different material from everything else: opaque --paper rather
+   than the translucent chrome the rest of the dock is made of. The session has
+   stopped, and it should look stopped rather than look like another step.
+
+   Quiet means it points and then stops talking. It does not assess, counsel, ask
+   a follow-up question, or offer a third button that carries on as before.
+   ─────────────────────────────────────────────────────────── */
+
+.support {
+  width: 100%;
+  max-width: var(--max-read);
+  margin-inline: auto;
+  max-height: calc(var(--stage-h) * 0.62);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--s5);
+  border-radius: var(--r-lg);
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: var(--e3);
+}
+
+.support__heading {
+  margin: 0 0 var(--s5);
+  font-family: var(--font-read);
+  font-size: var(--t-read);
+  line-height: var(--lh-read);
+  color: var(--ink);
+}
+
+.support__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--s5);
+}
+
+.support__item {
+  display: grid;
+  gap: var(--s1);
+}
+
+.support__action {
+  font-family: var(--font-read);
+  font-size: var(--t-title);
+  line-height: var(--lh-title);
+  color: var(--moss);
+  text-decoration: none;
+  /* A phone number and a domain are the two things on this card that must be
+     reachable with one tap and unmistakable as reachable. */
+  border-bottom: 1px solid var(--rule-firm);
+  justify-self: start;
+  min-height: var(--tap-min);
+  display: inline-flex;
+  align-items: center;
+}
+
+.support__name {
+  font-family: var(--font-ui);
+  font-size: var(--t-meta);
+  letter-spacing: var(--ls-meta);
+  text-transform: uppercase;
+  color: var(--stone);
+}
+
+.support__detail {
+  font-family: var(--font-ui);
+  font-size: var(--t-ui);
+  line-height: var(--lh-ui);
+  color: var(--ink-soft);
+}
+
+.support__note {
+  margin: var(--s5) 0 0;
+  font-family: var(--font-ui);
+  font-size: var(--t-meta);
+  line-height: var(--lh-ui);
+  color: var(--ink-soft);
+}
+
+.support__choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s3);
+  margin-top: var(--s5);
+}
+
+.support__choice {
+  flex: 1 1 auto;
+  min-height: var(--tap-min);
+  padding: var(--s2) var(--s4);
+  border-radius: var(--r-pill);
+  border: 1px solid var(--rule-firm);
+  background: none;
+  font-family: var(--font-ui);
+  font-size: var(--t-ui);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.support__choice:active {
+  background: var(--haze);
+}
+
+/* ───────────────────────────────────────────────────────────
    Reduced motion (§7.4)
    ─────────────────────────────────────────────────────────── */
 

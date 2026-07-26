@@ -1,0 +1,14 @@
+{
+  "name": "juno-yc_hackathon",
+  "private": true,
+  "scripts": {
+    "supabase:start": "supabase start --workdir .. --exclude logflare --ignore-health-check",
+    "supabase:stop": "supabase stop --workdir ..",
+    "supabase:status": "supabase status --workdir ..",
+    "supabase:cloud": "supabase projects list && supabase migration list --workdir .. && supabase functions list --workdir .."
+  },
+  "devDependencies": {
+    "supabase": "^2.109.1"
+  }
+}
+

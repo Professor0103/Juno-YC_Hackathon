@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { auditDaywalkerGlyphs, normaliseForDaywalker } from './lib/daywalker.js';
+import { CRISIS_HEADING, CRISIS_RESOURCES } from './lib/crisis.js';
 import {
   MODE_LABEL,
   dayKey,
@@ -8,12 +9,26 @@ import {
   makeEntry,
   seedEntries,
 } from './lib/entries.js';
-import { askDeepeningQuestion } from './lib/reply.js';
+import { composeFallbackQuestion } from './lib/fallbacks.js';
+import { looksLikeCrisis } from './lib/prefilter.js';
+import { privacy } from './lib/privacy.js';
+import { deepen, loadOpeningText, prewarm, saveReflection } from './lib/reflection.js';
 import { useArtRect } from './lib/useArtRect.js';
 import { useStageMetrics } from './lib/useStageMetrics.js';
 
-/* The opening line. Set in Newsreader, so §6.2's missing-glyph problem doesn't
-   reach it. Not a question about the user's interior state (§16). */
+/**
+ * The Reflection session (PSD 3.1).
+ *
+ * READING   the text is on screen and there is no input field.
+ * TALKING   the session, for as many turns as they want.
+ * KEPT      saved, on their say-so.
+ */
+const READING = 'reading';
+const TALKING = 'talking';
+const KEPT = 'kept';
+
+/* The journal opening line. Set in Newsreader, so §6.2's missing-glyph problem
+   doesn't reach it. Not a question about the user's interior state (§16). */
 const OPENING = 'Start anywhere.';
 
 const formatDate = (date) =>
@@ -22,8 +37,6 @@ const formatDate = (date) =>
     .replace(',', '')
     .toUpperCase();
 
-/* Built by hand rather than through toLocaleTimeString, which returns "24:00"
-   for midnight under hour12: false in some engines. */
 const pad = (n) => String(n).padStart(2, '0');
 const formatTime = (date) =>
   `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
@@ -38,18 +51,25 @@ let nextId = 1;
 const line = (who, text) => ({ id: nextId++, who, text });
 
 export default function App() {
-  const [lines, setLines] = useState(() => [line('opening', OPENING)]);
-  const [draft, setDraft] = useState('');
-  const [waiting, setWaiting] = useState(false);
   const [mode, setMode] = useState('journal');
-  /* Which sheet the overlay is showing, if any: null | 'help' | 'calendar'. */
+
+  /* Journal session — local lines in the sky column. */
+  const [lines, setLines] = useState(() => [line('opening', OPENING)]);
+  const [waiting, setWaiting] = useState(false);
+
+  /* Reflection session — served text and turns until kept. */
+  const [stage, setStage] = useState(READING);
+  const [text, setText] = useState(null);
+  const [turns, setTurns] = useState([]);
+  const [streaming, setStreaming] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [interrupted, setInterrupted] = useState(null);
+  const [interruptedOutcome, setInterruptedOutcome] = useState(null);
+
+  const [draft, setDraft] = useState('');
   const [sheet, setSheet] = useState(null);
-  /* Everything kept, in memory only — see lib/entries.js. */
   const [entries, setEntries] = useState(() => seedEntries());
-  /* Entry cards currently on the screen, in the order they were opened. Each
-     carries its own position, so several can be out at once. */
   const [cards, setCards] = useState([]);
-  /* Which way the composer is offering to take the writing: 'text' | 'voice'. */
   const [input, setInput] = useState('text');
 
   const stageRef = useRef(null);
@@ -60,13 +80,13 @@ export default function App() {
 
   useStageMetrics({ stageRef, artRef, columnRef, mastheadRef });
 
-  /* Fade is presentational. The oldest writing dissolves at the top of the
-     writing zone and then goes to zero; the text stays in state and in the
-     DOM, and scrolling back up brings it whole. Losing sight of your own words
-     is acceptable; losing the words is not — this user may be writing
-     something they will not write twice. */
-  /* Whether the user is reading the newest writing or has scrolled back into
-     the session. Resizing shouldn't yank them out of the latter. */
+  useEffect(() => {
+    prewarm();
+    loadOpeningText()
+      .then(setText)
+      .catch((err) => console.error('[mango] could not load the opening text', err));
+  }, []);
+
   const atBottomRef = useRef(true);
 
   const updateFade = useCallback(() => {
@@ -75,12 +95,8 @@ export default function App() {
 
     const top = column.scrollTop;
     atBottomRef.current = column.scrollHeight - top - column.clientHeight < 8;
-    // Drives the dissolve at the top edge, which is off until there is
-    // something above the fold to dissolve.
     column.dataset.scrolled = top > 1 ? 'true' : 'false';
 
-    // The lines are a level down now that the composer shares this scroller,
-    // but .sky__column is still their offsetParent, so offsetTop is unchanged.
     const written = column.querySelectorAll('.sky__line');
 
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -95,19 +111,20 @@ export default function App() {
     }
   }, []);
 
+  const readFromTop =
+    mode === 'reflection' && (stage === READING || (turns.length === 1 && streaming === ''));
+
   useEffect(() => {
     const column = columnRef.current;
     if (!column) return;
-    // Keep the newest line in view; older ones displace upward and fade. The
-    // draft counts: the composer lives at the foot of this same column now, so
-    // a growing draft is what pushes the caret toward the bottom edge.
-    column.scrollTop = column.scrollHeight;
+    if (mode === 'journal') {
+      column.scrollTop = column.scrollHeight;
+    } else {
+      column.scrollTop = readFromTop ? 0 : column.scrollHeight;
+    }
     updateFade();
-  }, [lines, waiting, draft, updateFade]);
+  }, [mode, lines, waiting, draft, text, turns, streaming, readFromTop, updateFade]);
 
-  /* The writing zone changes height when the viewport does — rotation, the
-     keyboard, text zoom. Without this the column keeps its old scroll offset
-     and the newest line ends up sliced by the bottom edge. */
   useEffect(() => {
     const column = columnRef.current;
     if (!column) return;
@@ -127,10 +144,8 @@ export default function App() {
 
   useEffect(() => {
     if (import.meta.env.DEV) auditDaywalkerGlyphs();
-  }, [lines]);
+  }, [lines, turns]);
 
-  /* Escape closes the sheet. It is the only way out that doesn't need the user
-     to find the button again, and the composer keeps the key free. */
   useEffect(() => {
     if (!sheet) return;
     const onKey = (event) => {
@@ -140,63 +155,156 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [sheet]);
 
-  /* Autogrow the field to the height of the draft. There is no cap: the field
-     sits inside the writing column, so the column's own bound is what stops it
-     descending past the band where --ink still clears 4.5:1. */
   useEffect(() => {
-    const input = inputRef.current;
-    if (!input) return;
-    input.style.height = 'auto';
-    input.style.height = `${input.scrollHeight}px`;
-  }, [draft]);
+    const inputEl = inputRef.current;
+    if (!inputEl) return;
+    inputEl.style.height = 'auto';
+    inputEl.style.height = `${inputEl.scrollHeight}px`;
+  }, [draft, stage, mode]);
+
+  useEffect(() => {
+    if (mode === 'journal') {
+      inputRef.current?.focus();
+    } else if (stage === TALKING && !busy && !interrupted) {
+      inputRef.current?.focus();
+    }
+  }, [mode, stage, busy, interrupted]);
+
+  const drain = useCallback(async (events, writing) => {
+    setBusy(true);
+    setStreaming('');
+    let accumulated = '';
+
+    try {
+      for await (const event of events) {
+        if (event.type === 'safety') {
+          setStreaming('');
+          setInterrupted(writing);
+          return false;
+        }
+        if (event.type === 'fallback') {
+          accumulated = '';
+          setStreaming('');
+          continue;
+        }
+        accumulated += event.text;
+        setStreaming(accumulated);
+      }
+    } finally {
+      setBusy(false);
+    }
+
+    const said = accumulated.trim();
+    if (said) setTurns((current) => [...current, { role: 'assistant', content: said }]);
+    setStreaming('');
+    return true;
+  }, []);
 
   const handleChange = (event) => {
-    // Substitute on the way in, so what they type is what the sky shows.
     setDraft(normaliseForDaywalker(event.target.value));
   };
 
-  const submit = async (event) => {
+  const submitJournal = async (event) => {
     event.preventDefault();
-    const text = draft.trim();
-    if (!text || waiting) return;
+    const written = draft.trim();
+    if (!written || waiting) return;
 
-    const mine = line('mine', text);
+    const mine = line('mine', written);
     setDraft('');
     setLines((current) => [...current, mine]);
-    // Kept, so it marks its day in the calendar and can be opened again.
-    setEntries((current) => [...current, makeEntry({ text, mode })]);
+    setEntries((current) => [...current, makeEntry({ text: written, mode })]);
     setWaiting(true);
 
     try {
-      const question = await askDeepeningQuestion([...lines, mine]);
+      const question = composeFallbackQuestion(written);
       setLines((current) => [...current, line('mango', question)]);
     } finally {
       setWaiting(false);
     }
   };
 
+  const submitReflection = async (event) => {
+    event.preventDefault();
+    const written = draft.trim();
+    if (!written || busy) return;
+
+    if (looksLikeCrisis(written)) {
+      setInterrupted(written);
+      return;
+    }
+
+    setDraft('');
+    setStage(TALKING);
+
+    const next = [...turns, { role: 'user', content: written }];
+    setTurns(next);
+
+    await drain(deepen({ text, turns: next }), written);
+  };
+
+  const submit = (event) => {
+    if (mode === 'journal') return submitJournal(event);
+    return submitReflection(event);
+  };
+
   const handleKeyDown = (event) => {
-    // Enter commits; Shift+Enter breaks the line. Every path works from the
-    // keyboard alone (§17).
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       submit(event);
     }
   };
 
-  const canSend = draft.trim().length > 0 && !waiting;
+  const keep = async () => {
+    setBusy(true);
+    try {
+      await saveReflection({ textId: text?.id, turns });
+      setStage(KEPT);
+    } catch (err) {
+      console.error('[mango] could not keep this reflection', err);
+    } finally {
+      setBusy(false);
+    }
+  };
 
-  /* Opening a day puts its first entry on the screen as a card. Cards cascade
-     rather than stack exactly, so a second one is visibly a second one; a day
-     already open is raised instead of duplicated. */
+  const keepInterrupted = async () => {
+    try {
+      const last = turns[turns.length - 1];
+      const already = last?.role === 'user' && last.content === interrupted;
+
+      await saveReflection({
+        textId: text?.id,
+        turns: already ? turns : [...turns, { role: 'user', content: interrupted }],
+      });
+      setInterruptedOutcome('saved');
+    } catch (err) {
+      console.error('[mango] could not save that', err);
+    }
+  };
+
+  const discardInterrupted = () => {
+    setDraft('');
+    setInterruptedOutcome('discarded');
+  };
+
+  const canSend =
+    draft.trim().length > 0 && (mode === 'journal' ? !waiting : !busy);
+
+  const waitingOnText =
+    mode === 'reflection' &&
+    busy &&
+    streaming === '' &&
+    turns[turns.length - 1]?.role === 'user';
+
+  const canLeave =
+    mode === 'reflection' &&
+    stage === TALKING &&
+    turns.some((turn) => turn.role === 'assistant');
+
   const openDay = (day) => {
     const found = entriesOn(entries, day, mode);
     if (found.length === 0) return;
     setCards((current) => {
       if (current.some((card) => card.day === day && card.mode === mode)) return current;
-      /* Lands clear of the sheet on the left, which is where it was opened
-         from — and pulled back inside the right edge on a narrow screen,
-         where 55% of the width would put most of it off the side. */
       const step = current.length * 28;
       const width = Math.min(CARD_WIDTH, window.innerWidth - 32);
       const x =
@@ -211,7 +319,6 @@ export default function App() {
   const moveCard = (key, x, y) =>
     setCards((current) => current.map((c) => (c.key === key ? { ...c, x, y } : c)));
 
-  /* Raises a card to the end of the list, which is the top of the stack. */
   const raiseCard = (key) =>
     setCards((current) => {
       const card = current.find((c) => c.key === key);
@@ -228,13 +335,20 @@ export default function App() {
       }),
     );
 
+  const startReflection = () => {
+    setMode('reflection');
+    setStage(READING);
+    setTurns([]);
+    setStreaming('');
+    setDraft('');
+    setInterrupted(null);
+    setInterruptedOutcome(null);
+  };
+
   return (
     <div className="stage" ref={stageRef} data-sheet={sheet ?? 'none'}>
       <Backdrop artRef={artRef} stageRef={stageRef} />
 
-      {/* Between the artwork and the writing in paint order, so it lifts the
-          whole writing zone off the sky without covering anything in it. One
-          surface, whichever panel is on it. */}
       <div
         className="sheet"
         data-open={sheet !== null}
@@ -270,83 +384,162 @@ export default function App() {
       </header>
 
       <main className="sky">
-        {/* The log and the composer share one scroller so the writing and the
-            line being written stay in a single column, with the caret sitting
-            directly under the last thing said. */}
         <div className="sky__column" ref={columnRef} onScroll={updateFade}>
           <div
             className="sky__log"
             tabIndex={0}
             role="log"
             aria-live="polite"
-            aria-label="What you have written, and what Mango has asked"
+            aria-label={
+              mode === 'journal'
+                ? 'What you have written, and what Mango has asked'
+                : 'The text, what you have written, and what Mango has asked'
+            }
           >
-            {lines.map((entry) => (
-              <p
-                key={entry.id}
-                className={`sky__line sky__line--${entry.who === 'opening' ? 'prompt' : entry.who}`}
-                /* Only the user's own writing is set in Daywalker now — the
-                   prompt moved to Newsreader with the rest of the render's
-                   voice, so the glyph audit shouldn't be policing it. */
-                data-face={entry.who === 'mine' ? 'daywalker' : 'newsreader'}
-              >
-                {entry.text}
-              </p>
-            ))}
-            {waiting && (
-              <p className="sky__line sky__line--mango" aria-label="Mango is writing">
-                <span className="sky__waiting" aria-hidden="true">
-                  |
-                </span>
-              </p>
+            {mode === 'journal' ? (
+              <>
+                {lines.map((entry) => (
+                  <p
+                    key={entry.id}
+                    className={`sky__line sky__line--${entry.who === 'opening' ? 'prompt' : entry.who}`}
+                    data-face={entry.who === 'mine' ? 'daywalker' : 'newsreader'}
+                  >
+                    {entry.text}
+                  </p>
+                ))}
+                {waiting && (
+                  <p className="sky__line sky__line--mango" aria-label="Mango is writing">
+                    <span className="sky__waiting" aria-hidden="true">
+                      |
+                    </span>
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                {text && (
+                  <div className="served">
+                    <p className="served__body">{text.body}</p>
+                    <p className="served__credit">
+                      {text.author}
+                      {text.year_published ? `, ${text.year_published}` : ''}
+                    </p>
+                  </div>
+                )}
+
+                {turns.map((turn, index) =>
+                  turn.role === 'user' ? (
+                    <p
+                      key={index}
+                      className="sky__line sky__line--mine"
+                      data-face="daywalker"
+                    >
+                      {turn.content}
+                    </p>
+                  ) : (
+                    <p key={index} className="sky__line sky__line--mango">
+                      {turn.content}
+                    </p>
+                  ),
+                )}
+
+                {streaming && <p className="sky__line sky__line--mango">{streaming}</p>}
+
+                {waitingOnText && (
+                  <p className="sky__line sky__line--mango" aria-label="Mango is writing">
+                    <span className="sky__waiting" aria-hidden="true">
+                      |
+                    </span>
+                  </p>
+                )}
+              </>
             )}
           </div>
 
-          <form className="composer" onSubmit={submit}>
-            {/* Where the writing starts. A stroke standing in the sky in text
-                mode, a microphone in voice mode — the mark itself is the
-                switch between the two (§10.4: text is always available, so
-                this changes what is offered, never what is possible). */}
-            <button
-              type="button"
-              className="composer__mark"
-              data-input={input}
-              aria-pressed={input === 'voice'}
-              onClick={() => setInput(input === 'voice' ? 'text' : 'voice')}
-            >
-              <span className="visually-hidden">Voice input</span>
-              {input === 'voice' ? <MicIcon /> : <span className="composer__stroke" />}
-            </button>
+          {mode === 'journal' ? (
+            <form className="composer" onSubmit={submit}>
+              <button
+                type="button"
+                className="composer__mark"
+                data-input={input}
+                aria-pressed={input === 'voice'}
+                onClick={() => setInput(input === 'voice' ? 'text' : 'voice')}
+              >
+                <span className="visually-hidden">Voice input</span>
+                {input === 'voice' ? <MicIcon /> : <span className="composer__stroke" />}
+              </button>
 
-            <label className="visually-hidden" htmlFor="composer">
-              Write
-            </label>
-            <textarea
-              id="composer"
-              className="composer__input"
-              ref={inputRef}
-              value={draft}
-              onChange={handleChange}
-              onKeyDown={handleKeyDown}
-              rows={1}
-              autoComplete="off"
-              spellCheck="true"
-              /* The screen is a blank page with a caret on it; landing on it
-                 without the caret already placed would be the wrong opening. */
-              autoFocus
+              <label className="visually-hidden" htmlFor="composer">
+                Write
+              </label>
+              <textarea
+                id="composer"
+                className="composer__input"
+                ref={inputRef}
+                value={draft}
+                onChange={handleChange}
+                onKeyDown={handleKeyDown}
+                rows={1}
+                autoComplete="off"
+                spellCheck="true"
+                autoFocus
+              />
+              <button className="composer__send" type="submit" disabled={!canSend}>
+                <span className="visually-hidden">Send</span>
+                <SendIcon />
+              </button>
+            </form>
+          ) : interrupted ? (
+            <SupportCard
+              outcome={interruptedOutcome}
+              onKeep={keepInterrupted}
+              onDiscard={discardInterrupted}
             />
-            {/* Enter commits, so the button is the pointer route rather than
-                the only one. Held back until there is something to send: the
-                resting screen is the caret and nothing else. */}
-            <button className="composer__send" type="submit" disabled={!canSend}>
-              <span className="visually-hidden">Send</span>
-              <SendIcon />
+          ) : stage === TALKING ? (
+            <>
+              <form className="composer" onSubmit={submit}>
+                <label className="visually-hidden" htmlFor="composer">
+                  Write
+                </label>
+                <textarea
+                  id="composer"
+                  className="composer__input"
+                  ref={inputRef}
+                  value={draft}
+                  onChange={handleChange}
+                  onKeyDown={handleKeyDown}
+                  rows={1}
+                  placeholder={turns.length === 0 ? 'Write' : 'Go on'}
+                  autoComplete="off"
+                  spellCheck="true"
+                />
+                <button className="composer__send" type="submit" disabled={!canSend}>
+                  <span className="visually-hidden">Send</span>
+                  <SendIcon />
+                </button>
+              </form>
+
+              {canLeave && (
+                <button className="leave" type="button" onClick={keep} disabled={busy}>
+                  I&rsquo;ll leave it here
+                </button>
+              )}
+            </>
+          ) : stage === READING ? (
+            <button
+              className="offer"
+              type="button"
+              onClick={() => setStage(TALKING)}
+              disabled={!text}
+            >
+              Respond
             </button>
-          </form>
+          ) : stage === KEPT ? (
+            <p className="note">{privacy.kept}</p>
+          ) : null}
         </div>
       </main>
 
-      {/* Above everything, because a card is something you have picked up. */}
       {cards.map((card) => {
         const found = entriesOn(entries, card.day, card.mode);
         const entry = found[Math.min(card.index, found.length - 1)];
@@ -362,7 +555,7 @@ export default function App() {
             onClose={() => closeCard(card.key)}
             onMove={(x, y) => moveCard(card.key, x, y)}
             onRaise={() => raiseCard(card.key)}
-            onReflect={() => setMode('reflection')}
+            onReflect={startReflection}
           />
         );
       })}
@@ -370,11 +563,6 @@ export default function App() {
   );
 }
 
-/**
- * One of the round masthead controls. Each opens its own panel onto the shared
- * sheet, and clicking the one already showing closes it — so the pair behaves
- * as a set rather than as two independent flags.
- */
 function SheetButton({ label, panel, open, onToggle, children }) {
   return (
     <button
@@ -398,11 +586,6 @@ function CalendarIcon() {
   );
 }
 
-/**
- * What Mango is, and what it is built on. The citations are the point of the
- * panel as much as the prose is, so they are set small rather than dropped —
- * small enough to sit under the argument, at full ink so they stay readable.
- */
 function HelpPanel() {
   return (
     <div className="help">
@@ -442,6 +625,41 @@ function HelpPanel() {
   );
 }
 
+function SupportCard({ outcome, onKeep, onDiscard }) {
+  return (
+    <section className="support" aria-live="assertive">
+      <p className="support__heading">{CRISIS_HEADING}</p>
+
+      <ul className="support__list">
+        {CRISIS_RESOURCES.map((resource) => (
+          <li key={resource.name} className="support__item">
+            <a className="support__action" href={resource.href}>
+              {resource.action}
+            </a>
+            <span className="support__name">{resource.name}</span>
+            <span className="support__detail">{resource.detail}</span>
+          </li>
+        ))}
+      </ul>
+
+      <p className="support__note">{privacy.unreported}</p>
+
+      {outcome === null ? (
+        <div className="support__choices">
+          <button className="support__choice" type="button" onClick={onKeep}>
+            Keep what I wrote
+          </button>
+          <button className="support__choice" type="button" onClick={onDiscard}>
+            Discard it
+          </button>
+        </div>
+      ) : (
+        <p className="support__note">{outcome === 'saved' ? 'Kept.' : 'Gone.'}</p>
+      )}
+    </section>
+  );
+}
+
 const WEEKDAYS = [
   ['SUN', 'Sunday'],
   ['MON', 'Monday'],
@@ -452,19 +670,6 @@ const WEEKDAYS = [
   ['SAT', 'Saturday'],
 ];
 
-/**
- * The month, with a dot on every day carrying an entry in the mode the toggle
- * is set to — so the toggle filters the record rather than describing it, and
- * one mark means one thing. That is why there is no two-item key beneath it,
- * only a caption naming what the dots are.
- *
- * Days with entries are buttons and open them; empty days are inert text
- * rather than dead controls.
- *
- * A table rather than a grid of divs: the column headers are real headers, and
- * this is the one structure a screen reader already knows how to read across
- * and down.
- */
 function Calendar({ markedDays, mode, onOpenDay }) {
   const today = new Date();
   const [cursor, setCursor] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
@@ -472,8 +677,6 @@ function Calendar({ markedDays, mode, onOpenDay }) {
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
 
-  // The Sunday on or before the 1st, then enough whole weeks to cover the
-  // month — five for most, six when a long month starts late in the week.
   const leading = new Date(year, month, 1).getDay();
   const days = new Date(year, month + 1, 0).getDate();
   const weeks = Math.ceil((leading + days) / 7);
@@ -498,8 +701,6 @@ function Calendar({ markedDays, mode, onOpenDay }) {
           <span className="visually-hidden">Previous month</span>
           <Chevron direction="left" />
         </button>
-        {/* Announced on navigation — the grid below it changes wholesale and
-            the month name is the only thing that says what it changed to. */}
         <h2 className="cal__title" aria-live="polite">
           {title}
         </h2>
@@ -566,8 +767,6 @@ function Calendar({ markedDays, mode, onOpenDay }) {
         </tbody>
       </table>
 
-      {/* Not a key — there is only one kind of mark on screen at a time. It
-          names what the dots are for the mode the toggle is set to. */}
       <p className="cal__caption">
         <span className="cal__dot" aria-hidden="true" /> {MODE_LABEL[mode]}
       </p>
@@ -575,24 +774,10 @@ function Calendar({ markedDays, mode, onOpenDay }) {
   );
 }
 
-/* How far an arrow key nudges a card, and how much of one must stay on screen
-   so a card can never be dropped somewhere it can't be picked up again.
-   CARD_WIDTH mirrors the 26rem in home.css — only used to place a new card
-   inside the right edge, so an approximation is enough. */
 const NUDGE = 24;
 const KEEP_ON_SCREEN = 80;
 const CARD_WIDTH = 416;
 
-/**
- * One kept entry, as a card on the screen rather than a modal — several can be
- * out at once, which is the point of it being draggable at all.
- *
- * Dragging is on the header, and pointer events do the work: one code path
- * covers mouse, touch and pen, and setPointerCapture keeps the drag alive when
- * the pointer outruns the header. The header is also focusable and takes arrow
- * keys, because a drag that only works by pointer is a drag half the people
- * using it can't do (§17).
- */
 function EntryCard({
   card,
   entry,
@@ -612,7 +797,6 @@ function EntryCard({
   ];
 
   const onPointerDown = (event) => {
-    // Let the buttons in the header be buttons.
     if (event.target.closest('button')) return;
     onRaise();
     grab.current = { dx: event.clientX - card.x, dy: event.clientY - card.y };
@@ -697,8 +881,6 @@ function EntryCard({
           </h2>
         )}
         {entry.body.map((paragraph, i) => (
-          // Paragraphs are fixed in order and never reordered, so the index is
-          // a stable identity here.
           // eslint-disable-next-line react/no-array-index-key
           <p className="entry__text" key={i}>
             {paragraph}
@@ -738,6 +920,32 @@ function EntryCard({
         )}
       </div>
     </article>
+  );
+}
+
+function ModeToggle({ mode, onChange }) {
+  const reflecting = mode === 'reflection';
+
+  return (
+    <button
+      type="button"
+      className="mode"
+      role="switch"
+      aria-checked={reflecting}
+      aria-label="Reflection mode"
+      data-mode={mode}
+      onClick={() => onChange(reflecting ? 'journal' : 'reflection')}
+    >
+      <span className="mode__label" data-active={!reflecting} aria-hidden="true">
+        Journal
+      </span>
+      <span className="mode__track" aria-hidden="true">
+        <span className="mode__knob" />
+      </span>
+      <span className="mode__label" data-active={reflecting} aria-hidden="true">
+        Reflection
+      </span>
+    </button>
   );
 }
 
@@ -794,45 +1002,6 @@ function Chevron({ direction }) {
   );
 }
 
-/**
- * Journal / Reflection, drawn as one pill with both modes named on either side
- * of the switch so the choice can be read without being operated first.
- *
- * role="switch" rather than a radio pair: there are two states and the control
- * on screen is literally a switch, so the platform semantics match the picture.
- * The painted labels are hidden from the accessibility tree — left in, they
- * make the control announce as "Journal Reflection Reflection mode, switch".
- */
-function ModeToggle({ mode, onChange }) {
-  const reflecting = mode === 'reflection';
-
-  return (
-    <button
-      type="button"
-      className="mode"
-      role="switch"
-      aria-checked={reflecting}
-      aria-label="Reflection mode"
-      data-mode={mode}
-      onClick={() => onChange(reflecting ? 'journal' : 'reflection')}
-    >
-      <span className="mode__label" data-active={!reflecting} aria-hidden="true">
-        Journal
-      </span>
-      <span className="mode__track" aria-hidden="true">
-        <span className="mode__knob" />
-      </span>
-      <span className="mode__label" data-active={reflecting} aria-hidden="true">
-        Reflection
-      </span>
-    </button>
-  );
-}
-
-/**
- * Date and 24-hour time, ticking. Its own component so the second-by-second
- * re-render doesn't touch the writing.
- */
 function Clock() {
   const [now, setNow] = useState(() => new Date());
 
@@ -840,8 +1009,6 @@ function Clock() {
     let timer;
     const tick = () => {
       setNow(new Date());
-      // Re-aimed at the next whole second each time. A flat 1000ms interval
-      // drifts, and the drift shows as a second that visibly skips.
       timer = window.setTimeout(tick, 1000 - (Date.now() % 1000));
     };
     timer = window.setTimeout(tick, 1000 - (Date.now() % 1000));
@@ -851,8 +1018,6 @@ function Clock() {
   return (
     <p className="masthead__clock">
       <span className="masthead__clock-date">{formatDate(now)}</span>
-      {/* Deliberately not a live region: announcing the time every second
-          would make the page unusable with a screen reader. */}
       <time className="masthead__clock-time" dateTime={now.toISOString()}>
         {formatTime(now)}
       </time>
@@ -860,12 +1025,6 @@ function Clock() {
   );
 }
 
-/**
- * The artwork at its native aspect ratio, with the sky extended above it in
- * CSS. See the note in home.css for why this is a composite rather than
- * object-fit: cover, and how the overflow is split between the two edges so a
- * short viewport doesn't crop the canopy away.
- */
 function Backdrop({ artRef, stageRef }) {
   return (
     <div className="backdrop" aria-hidden="true">
@@ -876,21 +1035,10 @@ function Backdrop({ artRef, stageRef }) {
   );
 }
 
-/* Where the bear sits in the painting, as a fraction of the artwork's own
-   box — centre-x, and the ground line where its feet meet the grass, both
-   measured off the reference mark at the foot of the trunk. A fraction of
-   the image (not the viewport) so the bear stays put at the tree no matter
-   how the backdrop crops or scales around it. */
 const BEAR_X = 0.7095;
 const BEAR_GROUND_Y = 0.7119;
-const BEAR_WIDTH_SHARE = 0.12; // of the artwork's rendered width
+const BEAR_WIDTH_SHARE = 0.12;
 
-/**
- * A small tired bear, resting where it's always rested — at the foot of the
- * tree. Placed from the measured art rect (useArtRect) rather than from CSS
- * percentages nested inside the backdrop, so it doesn't care how that
- * markup — or its aspect-ratio handling — is shaped underneath it.
- */
 function Bear({ stageRef, artRef }) {
   const rect = useArtRect(stageRef, artRef);
   const [reducedMotion, setReducedMotion] = useState(
@@ -908,7 +1056,7 @@ function Bear({ stageRef, artRef }) {
 
   const width = rect.width * BEAR_WIDTH_SHARE;
   const left = rect.left + rect.width * BEAR_X - width / 2;
-  const top = rect.top + rect.height * BEAR_GROUND_Y - width; // sprite is square
+  const top = rect.top + rect.height * BEAR_GROUND_Y - width;
 
   return (
     <img
