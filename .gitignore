@@ -18,3 +18,9 @@ frames/
 images/
 tools/
 seed-animation.html
+
+### Superseded by app/src/Onboarding.jsx ###
+onboarding.html
+
+### Local product-spec docs ###
+Document/
