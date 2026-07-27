@@ -142,10 +142,19 @@ body {
   margin-top: -1px;
 }
 
-.backdrop__art img {
+/* Same box the still <img> used: --art-w × --art-h from the measured 1.4282
+   ratio. The video file is nearer 4:3 (1112×834); cover fills that box without
+   changing the layout geometry the bear and writing zone are measured from. */
+.backdrop__art video {
   display: block;
   width: var(--art-w);
   height: var(--art-h);
+  max-width: none;
+  /* Video is 4:3; the layout box is the still's 1.4282:1. cover fills the box
+     without changing --art-w/--art-h, so the bear and writing zone stay put.
+     Position stays centered — keeping the tree on screen is still done by
+     .backdrop { align-items: flex-end }, same as the still. */
+  object-fit: cover;
   /* Slides the artwork below the bottom edge so the top crop stays off the
      canopy. The extra 1px is the same overlap guard as above. */
   margin-bottom: calc(-1px - var(--art-crop-bottom));

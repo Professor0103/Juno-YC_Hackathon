@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
  * bear at the foot of the tree) can be placed as a fraction of the image's
  * own box rather than of the viewport. The backdrop is free to resize the
  * artwork or crop it by a different amount at each edge — as long as artRef
- * still points at the real <img>, a decoration anchored through this hook
+ * still points at the real <img> or <video>, a decoration anchored through this hook
  * tracks it exactly.
  */
 export function useArtRect(stageRef, artRef) {
@@ -61,6 +61,7 @@ export function useArtRect(stageRef, artRef) {
     window.addEventListener('orientationchange', schedule);
     const art = artRef.current;
     art?.addEventListener('load', schedule);
+    art?.addEventListener('loadedmetadata', schedule);
 
     return () => {
       if (frame) cancelAnimationFrame(frame);
@@ -68,6 +69,7 @@ export function useArtRect(stageRef, artRef) {
       window.removeEventListener('resize', schedule);
       window.removeEventListener('orientationchange', schedule);
       art?.removeEventListener('load', schedule);
+      art?.removeEventListener('loadedmetadata', schedule);
     };
   }, [stageRef, artRef]);
 

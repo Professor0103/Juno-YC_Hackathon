@@ -2,8 +2,11 @@ export const MODEL = 'gpt-5.6-terra';
 
 const ENDPOINT = 'https://api.openai.com/v1/responses';
 
+// '*' until ALLOWED_ORIGIN is set, since the app isn't deployed to a fixed
+// origin yet — a judge opens it from whatever URL and network it's served on.
+// Once there's a real origin, set this secret and every function picks it up.
 export const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') ?? '*',
   'Access-Control-Allow-Headers': 'authorization, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };

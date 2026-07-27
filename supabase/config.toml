@@ -387,11 +387,14 @@ deno_version = 2
 
 # Stated rather than left to the default. Every function verifies the caller's JWT
 # and derives the user from it; none of them accept a user id from the body. For the
-# reflection beats this is also what stops them being an open proxy to the model.
+# reflection beat this is also what stops it being an open proxy to the model.
 [functions.reflection-deepen]
 verify_jwt = true
 
-[functions.chat]
+[functions.narrate]
+verify_jwt = true
+
+[functions.transcribe-voice-note]
 verify_jwt = true
 
 [analytics]

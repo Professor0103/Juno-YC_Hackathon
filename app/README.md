@@ -89,6 +89,11 @@ shift as the digits change, and deliberately not a live region.
 
 ## Scope
 
-Home screen only. The text lives in local component state. `src/lib/reply.js`
-is where the Anthropic call goes; everything else there is a local stand-in so
-the screen can be carried around without a key in the bundle.
+This started as a home-screen visual-direction test; the measurements above
+still describe how that screen is built. The app has since grown around it —
+Reflection and Journal modes, onboarding, voice input, narration, an
+analytics page — all under `src/`, talking to Supabase Edge Functions in
+`../supabase/functions` for anything that reaches a model or a paid API.
+Nothing under `app/` holds a provider key: those live in Supabase secrets and
+are only ever read inside a function, never in the bundle (see
+`scripts/check-secrets.mjs`).

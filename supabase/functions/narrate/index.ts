@@ -1,6 +1,13 @@
+import { CORS_HEADERS, json } from '../_shared/llm.ts';
+
 const DEFAULT_VOICE_ID = 'NtS6nEHDYMQC9QczMQuq';
 const MODEL_ID = 'eleven_multilingual_v2';
-const MAX_TEXT_LENGTH = 50_000;
+// The longest thing this function is ever asked to read is one reflection
+// turn (capped well under this at the model layer) or the opening poem, both
+// a few hundred to a couple of thousand characters. Bounded well above that,
+// not at what ElevenLabs itself allows, since every character here is a paid
+// TTS request an anonymous, unrate-limited caller could otherwise repeat.
+const MAX_TEXT_LENGTH = 8_000;
 const CHUNK_LIMIT = 4_500;
 
 const VOICE_SETTINGS = {
@@ -11,17 +18,8 @@ const VOICE_SETTINGS = {
   speed: 0.9,
 };
 
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-};
-
 function jsonError(message: string, status: number) {
-  return new Response(JSON.stringify({ error: message }), {
-    status,
-    headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-  });
+  return json({ error: message }, status);
 }
 
 function chunkText(text: string): string[] {

@@ -42,20 +42,13 @@ export function deepen({ text, turns }) {
 }
 
 /**
- * One row, written once, when the writer ends the session.
+ * One row, written once, when the writer ends the session. Nothing is
+ * persisted before this is called — the session exists only in React state
+ * until then, so an abandoned session leaves nothing behind by construction.
  *
- * Nothing is persisted before that. That is what makes "shows the support card and
- * writes no row anywhere" true by construction rather than by a branch somebody has
- * to remember to add: until this function is called, the session exists only in
- * React state.
- *
- * `body` holds their writing and nothing else, so the entry reads back as the thing
- * they wrote rather than as a chat log — the chat companion quotes from this column
- * and must never attribute Mango's sentence to them. Mango's turns are kept
- * alongside in deepening_question, which is why that column is now a transcript
- * rather than a single question.
- *
- * user_id comes from the session, and RLS checks it against the JWT anyway.
+ * `body` holds only what the writer wrote, never Mango's side of it, so an
+ * entry reads back as their own words. Mango's turns live alongside in
+ * deepening_question.
  */
 export async function saveReflection({ textId, turns }) {
   const session = await ensureSession();

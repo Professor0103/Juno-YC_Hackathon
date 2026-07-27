@@ -138,6 +138,7 @@ export function useStageMetrics({ stageRef, artRef, columnRef, mastheadRef }) {
     // The art is the only thing whose intrinsic size arrives late.
     const art = artRef.current;
     art?.addEventListener('load', schedule);
+    art?.addEventListener('loadedmetadata', schedule);
     document.fonts?.ready.then(schedule);
 
     return () => {
@@ -148,6 +149,7 @@ export function useStageMetrics({ stageRef, artRef, columnRef, mastheadRef }) {
       window.visualViewport?.removeEventListener('resize', schedule);
       window.visualViewport?.removeEventListener('scroll', schedule);
       art?.removeEventListener('load', schedule);
+      art?.removeEventListener('loadedmetadata', schedule);
     };
   }, [stageRef, artRef, columnRef, mastheadRef]);
 }

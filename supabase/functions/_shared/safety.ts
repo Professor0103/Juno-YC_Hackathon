@@ -2,18 +2,16 @@ import { complete } from './llm.ts';
 
 /**
  * Crisis screening — the second layer, behind the deterministic pre-filter.
- *
- * The pre-filter catches self-directed statements it has patterns for. This
- * catches the ones phrased in ways no pattern anticipated. Neither is here to
+ * The pre-filter catches self-directed statements it has patterns for; this
+ * catches the ones phrased in ways no pattern anticipated. Neither exists to
  * catch a mood.
  *
- * Precision is the whole difficulty, and the failure is not the one people
- * expect. An earlier version of this prompt flagged a nurse writing "easier than
- * the alternative" about telling her partner the truth about her day — three
- * times out of four. Interrupting that with a crisis card is a real harm: it
- * tells someone processing a bad shift that they have been read as a risk, in
- * the one place built to be safe from exactly that reading. So the rule below is
- * explicit-not-implied, and it is load-bearing.
+ * Precision matters more than it looks like it should: an earlier version of
+ * this prompt flagged "easier than the alternative" — a nurse writing about
+ * telling her partner the truth about her day — three times out of four.
+ * Interrupting that with a crisis card tells someone processing a bad shift
+ * that they've been read as a risk, in the one place meant to be safe from
+ * that. Hence the explicit-not-implied rule below; don't loosen it casually.
  */
 const SCREEN = `You are a screening classifier inside a private writing app used by healthcare staff.
 

@@ -1,17 +1,5 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2';
-
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-};
-
-function json(body: unknown, status: number) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-  });
-}
+import { CORS_HEADERS, json } from '../_shared/llm.ts';
 
 /**
  * Speech to text, and nothing else.
@@ -45,8 +33,16 @@ Deno.serve(async (req) => {
     { global: { headers: { Authorization: authorization } } },
   );
 
-  // Storage RLS scopes the bucket to the caller's own {uid}/ prefix, so this
-  // download is what stops one session reading another's recording.
+  // Storage RLS already scopes the bucket to the caller's own {uid}/ prefix, so
+  // a cross-user download would fail regardless. Checked again here so a
+  // mismatched path is rejected before it's sent anywhere, rather than relying
+  // on the database being the only thing standing in the way.
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  if (userError || !userData.user) return json({ error: 'Invalid session' }, 401);
+  if (!storagePath.startsWith(`${userData.user.id}/`)) {
+    return json({ error: 'storagePath does not belong to the caller' }, 403);
+  }
+
   const { data: audioBlob, error: downloadError } = await supabase
     .storage.from('voice-notes').download(storagePath);
   if (downloadError) return json({ error: downloadError.message }, 400);

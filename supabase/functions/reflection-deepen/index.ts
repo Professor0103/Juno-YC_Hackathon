@@ -3,19 +3,14 @@ import { DEEPENING } from '../_shared/prompts.ts';
 import { screen } from '../_shared/safety.ts';
 
 /**
- * The session beat — one turn back, read against everything said so far.
+ * The session beat — one turn back, read against everything said so far. Runs
+ * for as many turns as the writer wants; only they end the session.
  *
- * This used to take a single response and return a single question, once, and the
- * arc ended two messages later whether or not anything had been reached. It now
- * takes the whole transcript and runs for as many turns as the writer wants; only
- * they end the session.
- *
- * verify_jwt is on, so reaching this code means Supabase already validated the
- * caller's anonymous JWT. Nothing here reads or writes the database and nothing
- * here takes a user id from the body: the beat only needs the words in front of
- * it, so the service-role client never appears and RLS is never in the way. The
- * transcript is held by the client and posted back each turn — the server keeps
- * no session state, which is also why nothing accumulates anywhere to leak.
+ * verify_jwt is on, so reaching this code means the caller's JWT is already
+ * validated. Nothing here reads or writes the database or takes a user id from
+ * the body — the beat only needs the words in front of it, so there's no
+ * service-role client and RLS never comes into it. The transcript is held by
+ * the client and posted back each turn; the server keeps no session state.
  */
 
 /** Turns past this are dropped from the head of the transcript, oldest first. */

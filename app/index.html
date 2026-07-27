@@ -27,16 +27,9 @@
       href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,200..600;1,6..72,200..600&display=swap"
     />
 
-    <!-- The illustration is the first paint. Preload the same candidate set the
-         <picture> will choose from so the two resolve to one request. -->
-    <link
-      rel="preload"
-      as="image"
-      type="image/avif"
-      imagesrcset="/landscape/landscape-640.avif 640w, /landscape/landscape-1024.avif 1024w"
-      imagesizes="100vw"
-      fetchpriority="high"
-    />
+    <!-- The landscape video is the first paint. Poster holds the frame until it
+         decodes. -->
+    <link rel="preload" href="/landscape/landscape.mp4" as="video" type="video/mp4" />
   </head>
   <body>
     <div id="root"></div>

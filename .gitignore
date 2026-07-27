@@ -24,3 +24,8 @@ onboarding.html
 
 ### Local product-spec docs ###
 Document/
+
+### Local agent/IDE tooling — not part of the app ###
+.agents/
+.cursor/
+skills-lock.json

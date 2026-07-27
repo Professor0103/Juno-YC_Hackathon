@@ -1,14 +1,9 @@
 import { ensureSession, SUPABASE_ANON_KEY, SUPABASE_URL } from './supabase.js';
 
 /**
- * The transport every AI beat shares: an authenticated POST to an edge function,
- * an NDJSON stream read frame by frame, and a local fallback so a dead network
+ * Shared transport for streaming edge functions: an authenticated POST, an
+ * NDJSON stream read frame by frame, and a local fallback so a dead network
  * degrades into something rather than into nothing (PSD 4.1).
- *
- * Lifted out of reflection.js when the journal gained a companion of its own,
- * because the two surfaces differ only in which function they call and what they
- * fall back to. Anything true of both beats belongs here; anything true of one
- * belongs beside that one.
  */
 
 const FUNCTIONS = `${SUPABASE_URL}/functions/v1`;
@@ -44,11 +39,9 @@ export async function post(name, payload, signal) {
 }
 
 /**
- * Boot the isolates on app load so the first turn is not the request that pays
- * for a cold start while the user is watching. Both conversational surfaces are
- * warmed, because the journal is the landing mode and its first turn is the one
- * a judge sees first. Failures are ignored on purpose: this is an optimisation,
- * and neither beat may depend on it having worked.
+ * Boot the given functions' isolates on app load, so the first real turn isn't
+ * also paying for a cold start. Failures are ignored — this is an optimisation,
+ * not something a beat can depend on having worked.
  */
 export function prewarm(...names) {
   ensureSession()

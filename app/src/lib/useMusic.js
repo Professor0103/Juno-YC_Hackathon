@@ -2,23 +2,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { SUPABASE_URL } from './supabase.js';
 
 /**
- * Background music for the stage.
+ * Background music for the stage. Three tracks in a public Storage bucket,
+ * served rather than bundled so the 12MB doesn't ship to every visitor
+ * whether or not they ever press play (`preload: 'none'` too, same reason).
  *
- * Three tracks in a public Storage bucket, chosen by shuffle rather than by a
- * playlist order. Served from Supabase rather than bundled because 12MB of
- * audio in the Vite build would be 12MB every visitor downloads before the
- * first screen paints, whether or not they ever press play. `preload: 'none'`
- * means a visitor who leaves the music off pays nothing at all for it.
+ * A track loops on itself instead of advancing when it ends — this is room
+ * tone under a session, not a playlist, so only the shuffle button changes it.
  *
- * A track loops on itself rather than advancing to the next one when it ends —
- * this is room tone sitting under a five-minute session, not a playlist to be
- * carried along by, so the change in what is playing should only ever be the
- * writer's own choice, made with the shuffle button.
- *
- * The filenames are the stock library's own slugs, kept rather than tidied: they
- * are the only record of which track came from where, and PSD 3.5 wants the
- * rights on every piece of media settled before the pitch. [VERIFY the licence
- * on these three before demo day — they are stock lofi, not public domain.]
+ * Filenames are the stock library's own slugs, kept as the only record of
+ * where each track came from. [VERIFY licence before demo day — stock lofi,
+ * not public domain.]
  */
 
 const TRACKS = [

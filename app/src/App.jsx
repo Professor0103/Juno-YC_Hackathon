@@ -70,8 +70,11 @@ const line = (who, text) => ({ id: nextId++, who, text });
 export default function App() {
   const [mode, setMode] = useState('reflection');
 
-  /* Journal session — local lines in the sky column. */
+  /* Journal session — local lines in the sky column. Whether the opening line
+     has been handed to the field yet, and whether that handover is in flight. */
   const [lines, setLines] = useState([]);
+  const [started, setStarted] = useState(false);
+  const [starting, setStarting] = useState(false);
 
   /* Reflection session — served text and turns until kept. */
   const [stage, setStage] = useState(READING);
@@ -86,11 +89,6 @@ export default function App() {
   const [sheet, setSheet] = useState(null);
   const [entries, setEntries] = useState(() => seedEntries());
   const [cards, setCards] = useState([]);
-
-  /* Whether the journal's opening line has been handed over to the field yet,
-     and whether it is in the middle of doing so. */
-  const [started, setStarted] = useState(false);
-  const [starting, setStarting] = useState(false);
 
   /* Mango's spoken voice, reflection only. One reading at a time across the
      poem and every turn's own button — starting a new one stops whichever was
@@ -116,7 +114,7 @@ export default function App() {
   const music = useMusic();
 
   useEffect(() => {
-    prewarm('chat', 'reflection-deepen');
+    prewarm('reflection-deepen');
     loadOpeningText()
       .then(setText)
       .catch((err) => console.error('[mango] could not load the opening text', err));
@@ -189,7 +187,6 @@ export default function App() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [sheet]);
-
 
   useEffect(() => {
     const inputEl = inputRef.current;
@@ -322,10 +319,9 @@ export default function App() {
   };
 
   const keepInterrupted = async () => {
-    // In the journal there is nothing on a server to write to: an entry is a line
-    // in the log and a row in local memory, so keeping it means putting back what
-    // was held out. The companion is not called on it — the turn that would have
-    // asked a question is the turn that was interrupted.
+    // The journal has nothing on a server to write to: an entry is a line in
+    // the log and a row in local memory, so keeping it just puts back what
+    // was held out.
     if (mode === 'journal') {
       setLines((current) => [...current, line('mine', interrupted)]);
       setEntries((current) => [...current, makeEntry({ text: interrupted, mode })]);
@@ -1461,7 +1457,7 @@ function Backdrop({ artRef, stageRef }) {
   return (
     <div className="backdrop" aria-hidden="true">
       <div className="backdrop__sky" />
-      <Landscape className="backdrop__art" imgRef={artRef} priority />
+      <Landscape className="backdrop__art" videoRef={artRef} priority />
       <Bear stageRef={stageRef} artRef={artRef} />
     </div>
   );
@@ -1507,29 +1503,38 @@ function Bear({ stageRef, artRef }) {
   );
 }
 
-function Landscape({ className, imgRef, priority = false }) {
+function Landscape({ className, videoRef, priority = false }) {
+  const reducedMotion = usePrefersReducedMotion();
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (reducedMotion) {
+      video.pause();
+      video.currentTime = 0;
+      return;
+    }
+    video.play().catch(() => {});
+  }, [reducedMotion, videoRef]);
+
+  /* Wrapper matches the old <picture class="backdrop__art"><img/></picture>
+     structure so the flex/crop CSS is unchanged; only the media inside differs. */
   return (
-    <picture className={className}>
-      <source
-        type="image/avif"
-        srcSet="/landscape/landscape-640.avif 640w, /landscape/landscape-1024.avif 1024w"
-        sizes="100vw"
-      />
-      <source
-        type="image/webp"
-        srcSet="/landscape/landscape-640.webp 640w, /landscape/landscape-1024.webp 1024w"
-        sizes="100vw"
-      />
-      <img
-        ref={imgRef}
-        src="/landscape/landscape-1024.webp"
-        alt=""
+    <div className={className}>
+      <video
+        ref={videoRef}
+        src="/landscape/landscape.mp4"
         width="1024"
         height="717"
-        decoding="async"
-        fetchPriority={priority ? 'high' : 'low'}
+        autoPlay
+        loop
+        muted
+        playsInline
+        preload={priority ? 'auto' : 'metadata'}
+        poster="/landscape/landscape-1024.webp"
+        aria-hidden="true"
       />
-    </picture>
+    </div>
   );
 }
 
