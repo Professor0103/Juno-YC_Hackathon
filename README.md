@@ -1,6 +1,6 @@
 # Mango 🥭
 
-A private narrative-medicine app for healthcare workers, built in about 36 hours at [Juno's Consumer Health Hackathon](https://luma.com/londonai-m2w1) in London.
+A private narrative-medicine app for healthcare workers, that we built in 24 hours at [Juno's Consumer Health Hackathon](https://luma.com/londonai-m2w1) in London. Sponsored by Juno (YC P26), Anthropic, OpenAI, ElevenLabs, Supabase, Vercel and more. 
 
 Doctors have the highest suicide rate of any professional group, and a survey of over 10,000 of them found that fear of losing confidentiality or career standing — not lack of care — is what actually stops people asking for help. We designed for that fear directly rather than around it. This couldn't be another wellbeing app with mood rings and streaks; it had to be private by construction, not by policy, and it had to do something more useful than asking "how are you feeling today?"
 
